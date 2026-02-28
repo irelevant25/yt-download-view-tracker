@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>youtube-checker Logs</title>
+    <style>
+        body {
+            background: linear-gradient(315deg, rgba(44, 62, 80) 0%, rgba(22, 31, 40) 35%, rgba(0, 0, 0) 100%);
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        #logContainer {
+            /* padding: 20px; */
+            color: wheat;
+            height: 100vh;
+            overflow-y: scroll;
+            white-space: pre-wrap;
+
+            .message-wrapper {
+                display: flex;
+            }
+
+            .timestamp {
+                color: white;
+                min-width: fit-content;
+                margin-right: 15px;
+            }
+
+            .red {
+                color: rgb(255 100 100);
+            }
+
+            .green {
+                color: rgb(150 255 150);
+            }
+
+            .blue {
+                color: rgb(150 150 255);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="logContainer"></div>
+    <script src="renderer.js"></script>
+</body>
+
+</html>

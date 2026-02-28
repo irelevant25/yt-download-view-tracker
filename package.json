@@ -1,0 +1,77 @@
+{
+  "name": "youtube-checker",
+  "version": "2.0.0",
+  "description": "An Electron application for downloading and tracking YouTube videos",
+  "main": "src/main.js",
+  "icon": "128.ico",
+  "engines": {
+    "npm": "10.8.2",
+    "node": "22.15.0"
+  },
+  "build": {
+    "productName": "YouTube Checker",
+    "appId": "com.yourdomain.youtubechecker",
+    "files": [
+      "src/**/*",
+      "index.html",
+      "scripts/**/*",
+      "renderer/**/*",
+      "resources/**/*",
+      "youtube-checker.manifest"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "256.ico",
+      "protocols": [
+        {
+          "name": "youtube-checker",
+          "schemes": [
+            "youtube-checker"
+          ]
+        }
+      ]
+    },
+    "extraFiles": [
+      {
+        "from": "bin",
+        "to": ".",
+        "filter": [
+          "ffmpeg.exe",
+          "yt-dlp.exe"
+        ]
+      }
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    }
+  },
+  "scripts": {
+    "start": "node start.js && electron .",
+    "dev": "electron . --dev",
+    "build": "node clean.js && electron-builder",
+    "build:legacy": "electron-builder",
+    "clean": "rimraf dist",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "youtube",
+    "downloader",
+    "electron",
+    "video"
+  ],
+  "author": "Frantisek irelevant Pastorek",
+  "private": true,
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "music-metadata": "^11.0.0"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "electron": "^34.3.0",
+    "electron-builder": "^25.1.8"
+  }
+}

@@ -1,0 +1,31 @@
+{
+    "name": "youtube-checker",
+    "version": "1.0.0",
+    "description": "",
+    "main": "downloader.js",
+    "engines": {
+      "npm": "10.8.2",
+      "node": "22.5.1"
+    },
+    "bin": {
+      "youtube-checker": "./downloader.js"
+    },
+    "scripts": {
+      "start": "node start.js && node downloader.js",
+      "package": "npx pkg . --targets node16-win-x64",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [],
+    "author": "",
+    "private": true,
+    "license": "ISC",
+    "dependencies": {
+      "body-parser": "^1.20.2",
+      "cors": "^2.8.5",
+      "express": "^4.19.2"
+    },
+    "devDependencies": {
+      "pkg": "^5.8.1"
+    }
+  }
+  

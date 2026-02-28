@@ -1,0 +1,50 @@
+{
+    "name": "youtube-checker",
+    "version": "2.0.0",
+    "description": "",
+    "main": "main.js",
+    "engines": {
+      "npm": "10.8.2",
+      "node": "22.5.1"
+    },
+    "build": {
+      "appId": "com.example.youtubechecker",
+      "files": [
+        "main.js",
+        "index.html",
+        "renderer.js",
+        "icon.png"
+      ],
+      "win": {
+        "target": "portable",
+        "protocols": [
+          {
+            "name": "youtube-checker",
+            "schemes": [
+              "youtube-checker"
+            ]
+          }
+        ]
+      }
+    },
+    "scripts": {
+      "start": "node start.js && electron .",
+      "package": "electron-builder",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [],
+    "author": "",
+    "private": true,
+    "license": "ISC",
+    "dependencies": {
+      "body-parser": "^1.20.2",
+      "cors": "^2.8.5",
+      "express": "^4.19.2",
+      "music-metadata": "^7.14.0"
+    },
+    "devDependencies": {
+      "electron": "^25.2.0",
+      "electron-builder": "^23.6.0",
+      "pkg": "^5.8.1"
+    }
+  }

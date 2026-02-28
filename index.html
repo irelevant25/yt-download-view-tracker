@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Checker - Logs</title>
+    <link rel="stylesheet" href="renderer/styles.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo">
+                <span class="logo-text">YouTube Checker</span>
+                <span class="logo-version">v2.0.0</span>
+            </div>
+            <div class="header-controls">
+                <button id="clearBtn" class="clear-btn" title="Clear log display">Clear</button>
+                <button id="scrollLockBtn" class="scroll-lock-btn" title="Toggle auto-scrolling">🔒</button>
+            </div>
+        </header>
+
+        <main id="logContainer" class="log-container">
+            <!-- Logs will be inserted here by the renderer -->
+        </main>
+
+        <footer class="app-footer">
+            <div class="stats">
+                <span id="downloadCount">0</span> videos downloaded
+            </div>
+        </footer>
+    </div>
+
+    <script src="renderer/renderer.js"></script>
+</body>
+
+</html>

@@ -78,6 +78,9 @@ async function initializeApp() {
             logger.init(mainWindow);
         });
 
+        // Ensure required directories exist (must run first so logs/ is available)
+        await storage.ensureDirectories();
+
         // Create main window
         const mainWindow = windowManager.createMainWindow();
 
@@ -85,9 +88,6 @@ async function initializeApp() {
 
         // Create system tray
         trayManager.createTray();
-
-        // Ensure required directories exist
-        await storage.ensureDirectories();
 
         // Register protocol handler (Windows only)
         await protocol.registerProtocolHandler();

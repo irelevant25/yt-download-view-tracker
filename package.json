@@ -40,6 +40,10 @@
           "ffprobe.exe",
           "yt-dlp.exe"
         ]
+      },
+      {
+        "from": "resources",
+        "to": "resources"
       }
     ],
     "directories": {

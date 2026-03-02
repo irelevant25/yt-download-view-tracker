@@ -5,8 +5,14 @@ const { app } = require('electron');
 const path = require('path');
 
 // Base directory (either __dirname or the executable's directory)
-const BASE_DIR = app.isPackaged ? process.env.PORTABLE_EXECUTABLE_DIR : path.resolve(__dirname, '..');
-const RESOURCES_DIR = path.join(BASE_DIR, 'resources');
+// Fallback to path.dirname(process.execPath) if PORTABLE_EXECUTABLE_DIR is not set (e.g. win-unpacked)
+const BASE_DIR = app.isPackaged
+    ? (process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath))
+    : path.resolve(__dirname, '..');
+// In production, icons must be read from the real filesystem (not inside asar),
+// so we use process.resourcesPath which points to the temp extraction directory
+// where extraFiles are placed. In dev, use the project resources/ folder.
+const RESOURCES_DIR = app.isPackaged ? process.resourcesPath : path.join(BASE_DIR, 'resources');
 const LOGS_DIR = path.join(BASE_DIR, 'logs');
 
 // Binaries are in bin/ during development; electron-builder extraFiles copies them to app root in production

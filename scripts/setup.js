@@ -1,18 +1,16 @@
 /**
  * Setup script for app
- * Creates necessary directories and default configuration
+ * Creates necessary directories, default data files, and downloads required binaries.
+ *
+ * Usage: node scripts/setup.js
  */
 const fs = require('fs');
 const path = require('path');
+const { main: installBinaries } = require('./install-binaries');
 
-// Paths to create
-const dirsToCreate = [
-    'videos',
-    'logs',
-    'bin'
-];
+// Directories to create
+const dirsToCreate = ['videos', 'logs', 'bin'];
 
-// Create directories
 dirsToCreate.forEach(dir => {
     const dirPath = path.join(__dirname, '..', dir);
     if (!fs.existsSync(dirPath)) {
@@ -28,9 +26,13 @@ if (!fs.existsSync(downloadedVideosFile)) {
     fs.writeFileSync(downloadedVideosFile, '[]');
 }
 
-// Instructions for binary dependencies
-console.log('\nSetup complete!');
-console.log('\nIMPORTANT: You need to download the following files manually:');
-console.log('1. ffmpeg.exe - Place in the "bin" directory');
-console.log('2. yt-dlp.exe - Place in the "bin" directory');
-console.log('\nThese files are required for the application to function correctly.');
+console.log('\nSetup: directories ready. Downloading binaries...\n');
+
+installBinaries().then(ok => {
+    if (ok) {
+        console.log('\nSetup complete! You can now run: npm run dev');
+    } else {
+        console.error('\nSetup finished with errors. Check messages above.');
+        process.exit(1);
+    }
+});

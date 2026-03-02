@@ -7,6 +7,7 @@ const path = require('path');
 // Base directory (either __dirname or the executable's directory)
 const BASE_DIR = app.isPackaged ? process.env.PORTABLE_EXECUTABLE_DIR : path.resolve(__dirname, '..');
 const RESOURCES_DIR = path.join(BASE_DIR, 'resources');
+const LOGS_DIR = path.join(BASE_DIR, 'logs');
 
 // Binaries are in bin/ during development; electron-builder extraFiles copies them to app root in production
 const BIN_DIR = app.isPackaged ? BASE_DIR : path.join(BASE_DIR, 'bin');
@@ -20,11 +21,13 @@ const CONFIG = {
 
     // Directories
     VIDEOS_DIRECTORY: path.join(BASE_DIR, 'videos'),
-    LOGS_DIRECTORY: path.join(BASE_DIR, 'logs'),
+    LOGS_DIRECTORY: LOGS_DIR,
     RESOURCES_DIRECTORY: RESOURCES_DIR,
 
     // Files
     DOWNLOADED_VIDEOS_FILE: path.join(BASE_DIR, 'downloaded_videos.json'),
+    WATCH_TRACKER_FILE: path.join(BASE_DIR, 'YouTubeWatchTracker.json'),
+    ACTIVITY_LOG_FILE: path.join(LOGS_DIR, 'activity.log'),
     FFMPEG_PATH: path.join(BIN_DIR, 'ffmpeg.exe'),
     YTDLP_PATH: path.join(BIN_DIR, 'yt-dlp.exe'),
 

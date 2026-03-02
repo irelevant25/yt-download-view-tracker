@@ -14,6 +14,7 @@ const apiServer = require('./api/server');
 const protocol = require('./services/protocol');
 const storage = require('./services/storage');
 const metadata = require('./services/metadata');
+const updater = require('./services/updater');
 const windowManager = require('./ui/window');
 const trayManager = require('./ui/tray');
 
@@ -104,6 +105,9 @@ async function initializeApp() {
 
         // Initialize routes with downloaded videos
         apiServer.initializeDownloadedVideos(videosFromMetadata);
+
+        // Start daily yt-dlp update checker
+        updater.startUpdateScheduler();
 
         // Initialize UI downloaded videos list
         logger.updateDownloadVideos(videosFromMetadata);

@@ -7,6 +7,7 @@
 // @match        *://*.youtube.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=youtube.com
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @connect      localhost
 // @noframes
 // ==/UserScript==
@@ -359,15 +360,34 @@
     async function uploadDBToApi() {
         download(true, async (data) => {
             try {
-                await customFetch(API_URL + '/upload-db', {
+                const response = await customFetch(API_URL + '/upload-db', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ data })
                 });
+                const result = await response.json();
+
+                // Sync confirmed download status from the app back into local IndexedDB.
+                // The app returns codes it has actually downloaded — update any that are
+                // still marked as download:false locally.
+                const codes = result.downloadedVideoCodes;
+                if (Array.isArray(codes) && codes.length > 0) {
+                    let syncedCount = 0;
+                    for (const videoCode of codes) {
+                        const video = await db.get(videoCode);
+                        if (video && !video.download) {
+                            await db.put(videoCode, { ...video, download: true });
+                            syncedCount++;
+                        }
+                    }
+                    if (syncedCount > 0) {
+                        console.log(`[YT-Tracker] Synced ${syncedCount} video(s) as downloaded`);
+                        NotificationSystem.success(`Synced ${syncedCount} download(s) from app`, 0);
+                    }
+                }
             } catch (error) {
                 console.error(error);
             }
-            return true;
         });
     }
 
@@ -399,7 +419,7 @@
         }
         if (video.download) {
             console.log('[YT-Tracker] Download skipped: already downloaded');
-            NotificationSystem.success('Already downloaded', 2000);
+            NotificationSystem.success('Already downloaded', 0);
             return;
         }
 
@@ -409,7 +429,7 @@
         }
 
         if (!apiAvailable) {
-            NotificationSystem.error('API is not running', 2000);
+            NotificationSystem.error('API is not running', 0);
             return;
         }
 
@@ -422,10 +442,9 @@
                 body: JSON.stringify({ url: videoUrl })
             });
             const result = await response.json();
+            // Show the API message ("started" or "already in progress").
+            // Do NOT mark as downloaded here — the app will confirm on next startup sync.
             NotificationSystem.success(result.message, 0);
-
-            // Mark as downloaded
-            await db.put(videoCode, { ...video, download: true });
         } catch (error) {
             NotificationSystem.error('Failed to send download request.', 0);
             console.error(error);
@@ -727,6 +746,54 @@
         };
     }
 
-    window.download = download;
-    window.size = size;
+    async function upload() {
+        return new Promise((resolve, reject) => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,application/json';
+
+            input.addEventListener('change', async () => {
+                const file = input.files[0];
+                if (!file) return resolve(null);
+
+                let data;
+                try {
+                    data = JSON.parse(await file.text());
+                } catch (e) {
+                    console.error('[YT-Tracker] Invalid JSON:', e);
+                    return reject('Invalid JSON file');
+                }
+
+                if (!Array.isArray(data)) {
+                    console.error('[YT-Tracker] Expected an array');
+                    return reject('Expected an array');
+                }
+
+                const dbInstance = await dbPromise;
+                const transaction = dbInstance.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+
+                store.clear().onsuccess = () => {
+                    for (const { key, ...videoData } of data) {
+                        store.put(videoData, key);
+                    }
+                };
+
+                transaction.oncomplete = () => {
+                    console.log(`[YT-Tracker] Uploaded ${data.length} record(s) to "${STORE_NAME}"`);
+                    resolve(data.length);
+                };
+                transaction.onerror = (e) => {
+                    console.error('[YT-Tracker] Upload error:', e);
+                    reject(e);
+                };
+            });
+
+            input.click();
+        });
+    }
+
+    unsafeWindow.download = download;
+    unsafeWindow.size = size;
+    unsafeWindow.upload = upload;
 })();

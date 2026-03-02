@@ -1,0 +1,46 @@
+name: Build and Release
+
+# Triggers when you push a version tag, e.g. git tag v2.1.0 && git push --tags
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # needed to create GitHub Releases
+
+jobs:
+  release:
+    runs-on: windows-latest   # must be Windows — app targets Win32 portable exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Downloads yt-dlp.exe and ffmpeg suite into bin/ (gitignored, not in repo)
+      - name: Download required binaries
+        run: node scripts/install-binaries.js
+
+      # electron-builder reads bin/ via extraFiles and packages everything
+      - name: Build portable executable
+        run: npx electron-builder
+        env:
+          # Prevents electron-builder from publishing automatically
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Upload the .exe from dist/ to the GitHub Release created by the tag push
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          generate_release_notes: true
+          fail_on_unmatched_files: true

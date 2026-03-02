@@ -37,6 +37,7 @@
         "to": ".",
         "filter": [
           "ffmpeg.exe",
+          "ffprobe.exe",
           "yt-dlp.exe"
         ]
       }
@@ -47,10 +48,12 @@
     }
   },
   "scripts": {
+    "setup": "node scripts/setup.js",
+    "install-bins": "node scripts/install-binaries.js",
     "start": "node start.js && electron .",
     "dev": "electron . --dev",
-    "build": "node clean.js && electron-builder",
-    "build:legacy": "electron-builder",
+    "build": "node scripts/install-binaries.js && node clean.js && electron-builder",
+    "build:legacy": "node scripts/install-binaries.js && electron-builder",
     "clean": "rimraf dist",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

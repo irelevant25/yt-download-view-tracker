@@ -9,12 +9,12 @@ const notifications = require('../utils/notifications');
 const downloader = require('../services/downloader');
 const storage = require('../services/storage');
 
-// Track downloaded videos
+// Authoritative list of URLs the app has actually downloaded (string[])
 let downloadedVideos = [];
 
 /**
- * Initialize downloaded videos list
- * @param {string[]} videos - List of video URLs
+ * Initialize downloaded videos list from metadata scan on startup.
+ * @param {string[]} videos - List of video URLs found in video files
  */
 function initializeDownloadedVideos(videos) {
     downloadedVideos = videos || [];
@@ -30,53 +30,56 @@ router.get('/', (req, res) => {
 router.post('/download', (req, res) => {
     const videoUrl = req.body?.url;
 
-    // Validate request
     if (!videoUrl) {
         return res.status(400).json({ error: 'No video URL provided' });
     }
 
-    // Check if video is already downloaded or downloading
     if (downloadedVideos.includes(videoUrl) || downloader.isDownloading(videoUrl)) {
         logger.info(`Video already downloaded or downloading: ${videoUrl}`);
+        logger.activityLog('DUPLICATE', videoUrl);
         return res.status(200).json({ message: 'Video already downloaded or in progress.' });
     }
 
-    // Start download
     logger.info(`Received request to download: ${videoUrl}`);
 
-    downloader.initiateDownload(videoUrl, (url, success) => {
+    downloader.initiateDownload(videoUrl, async (url, success) => {
         if (success) {
             downloadedVideos.push(url);
+            await storage.appendDownloadedVideo(url);
         }
     });
 
     return res.status(200).json({ message: 'Video download successfully started.' });
 });
 
-// API endpoint: Upload database
+// API endpoint: Upload TamperMonkey database snapshot
+//
+// Saves the full video-object array to YouTubeWatchTracker.json and returns
+// the list of video codes the app has actually downloaded so TamperMonkey
+// can update its local IndexedDB to reflect the real download status.
 router.post('/upload-db', async (req, res) => {
     const data = req.body?.data;
 
-    // Validate request
     if (!data || !Array.isArray(data)) {
         return res.status(400).json({ error: 'Invalid or missing data' });
     }
 
-    logger.info(`Received request to save data: ${data.length} record(s)`);
+    logger.info(`Received watch tracker upload: ${data.length} record(s)`);
 
-    // Get current data
-    const savedData = await storage.readDownloadedVideos();
+    // Data-loss guard: compare against the last saved snapshot
+    const savedData = await storage.readWatchTracker();
 
-    // Compare data sizes
     if (savedData?.length === data.length) {
-        logger.info('Data has not changed.');
-        return res.status(200).json({ message: 'Data has not changed.' });
+        logger.info('Watch tracker data has not changed.');
+        return res.status(200).json({
+            message: 'Data has not changed.',
+            downloadedVideoCodes: extractVideoCodes(downloadedVideos)
+        });
     }
 
     if (savedData?.length > data.length) {
         logger.error(`Received data (${data.length}) is smaller than saved data (${savedData.length})`);
         logger.error('Possible data loss detected. Manual investigation required.');
-        logger.error('Consider restoring data from file to browser IndexedDB.');
 
         notifications.showNotification(
             'Data Error',
@@ -89,17 +92,31 @@ router.post('/upload-db', async (req, res) => {
         });
     }
 
-    // Save the data
-    const success = await storage.saveDownloadedVideos(data);
+    const success = await storage.saveWatchTracker(data);
 
     if (success) {
-        // Update in-memory list
-        downloadedVideos = [...data];
-        return res.status(200).json({ message: 'Data saved successfully.' });
+        return res.status(200).json({
+            message: 'Data saved successfully.',
+            downloadedVideoCodes: extractVideoCodes(downloadedVideos)
+        });
     } else {
         return res.status(500).json({ error: 'Failed to save data' });
     }
 });
+
+/**
+ * Extract YouTube video codes (the ?v= value) from a list of full URLs.
+ * @param {string[]} urls
+ * @returns {string[]}
+ */
+function extractVideoCodes(urls) {
+    return urls
+        .map(url => {
+            try { return new URL(url).searchParams.get('v'); }
+            catch { return null; }
+        })
+        .filter(Boolean);
+}
 
 module.exports = {
     router,

@@ -2,6 +2,9 @@
  * Logging utility for app
  * Handles log message formatting and delivery to both console and UI
  */
+const fs = require('fs');
+const CONFIG = require('../config');
+
 let mainWindow = null;
 let messageQueue = [];
 
@@ -71,6 +74,22 @@ function info(message) {
     log(message, 'blue');
 }
 
+/**
+ * Append a line to the activity log file.
+ * Format: YYYY-MM-DD HH:MM:SS | STATUS        | label
+ * @param {string} status - Status string (e.g. STARTED, SUCCESS, ERROR)
+ * @param {string} label  - Video URL or descriptive label
+ */
+function activityLog(status, label) {
+    try {
+        const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        const line = `${timestamp} | ${status.padEnd(13)} | ${label}\n`;
+        fs.appendFileSync(CONFIG.ACTIVITY_LOG_FILE, line);
+    } catch {
+        // Silent fail — logs directory may not exist yet on very early calls
+    }
+}
+
 function updateDownloadVideos(videos) {
     videos.forEach(videoUrl => {
         mainWindow.webContents.send('download-completed', videoUrl);
@@ -83,5 +102,6 @@ module.exports = {
     error,
     success,
     info,
+    activityLog,
     updateDownloadVideos
 };

@@ -4,6 +4,49 @@ An Electron application for downloading and tracking YouTube videos. Works toget
 
 ---
 
+## How to install
+
+Everything below is a one-time setup. After that the app runs silently in the background and handles everything automatically.
+
+### Step 1 — Install TamperMonkey in your browser
+
+Go to [tampermonkey.net](https://www.tampermonkey.net/) and install the extension for your browser (Chrome, Firefox, or Edge are all supported). Follow the browser's normal extension install flow.
+
+### Step 2 — Install the YouTube Checker script
+
+1. Open this GitHub repository in your browser.
+2. Click on the file `tamper-monkey-script.js`.
+3. Click the **Raw** button (top-right of the file view).
+4. TamperMonkey will intercept the page and show an install screen.
+5. Click **Install**.
+
+> If TamperMonkey does not intercept the raw page automatically, open the TamperMonkey dashboard (click its icon in your browser toolbar → **Dashboard**), go to the **Utilities** tab, and use **Import from URL** — paste the raw GitHub URL of `tamper-monkey-script.js` there.
+
+### Step 3 — Download the app
+
+Go to the [Releases](../../releases) page of this repository and download `YouTube Checker.exe`. Place the file somewhere permanent — for example `C:\Users\YourName\Apps\YouTube Checker\YouTube Checker.exe`. It does not need to be installed; it is a portable executable.
+
+### Step 4 — Run the app for the first time
+
+Double-click `YouTube Checker.exe`. On the very first launch it will:
+
+- Download the required tools (`yt-dlp` and `ffmpeg`) into the same folder as the exe — this takes about a minute depending on your connection.
+- Register itself with Windows so the browser can wake it up automatically when needed.
+
+Once ready the app minimises to the **system tray** (bottom-right corner of the taskbar). You do not need to keep a window open.
+
+### Step 5 — Done
+
+Open YouTube in your browser. The TamperMonkey script will connect to the app automatically. From now on:
+
+- **Like a video** → the app queues and downloads it in the background.
+- **Orange border** on a video thumbnail → you have seen or tracked it before.
+- **Hover over the orange timestamp** → shows how long ago you watched it.
+
+If the app is not running when you like a video a pop-up will appear asking you to start it. Click **Run** and the app will launch via the registered shortcut.
+
+---
+
 ## How it works
 
 1. The TamperMonkey script runs on YouTube and tracks liked/disliked videos in the browser's IndexedDB.

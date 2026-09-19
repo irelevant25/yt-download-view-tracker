@@ -108,12 +108,14 @@ date and triggers a re-download.
 **Fixed** at `tamper-monkey-script.js:794-797` — `datetime` and `download` are
 carried over from the stored record.
 
-### 9. `download()` → `upload()` round-trip corrupts the database
+### 9. ~~`download()` → `upload()` round-trip corrupts the database~~ — FIXED
 
 `download(true, …)` stringifies `datetime`, and `upload()` writes records back
 verbatim. After a backup/restore cycle every `datetime` is a string, so
 `new Date(item.datetime * 1000)` yields `Invalid Date` everywhere in the UI.
-`upload()` should parse `DD.MM.YYYY HH:MM:SS` back to a unix timestamp.
+**Fixed**: the userscript gained `parseDatetime()`, and `upload()` converts each
+record back to unix seconds before storing it. Verified lossless: a formatted
+string parses and reformats to exactly the same text.
 
 ### 10. `downloaded_videos.json` is write-only
 
@@ -134,7 +136,7 @@ delete the dead functions and the file.
 **Fixed** at `tamper-monkey-script.js:25` — correct lowercase global, and policy
 creation is wrapped in try/catch.
 
-### 11b. `/upload-db` drops changes when the record count is unchanged
+### 11b. ~~`/upload-db` drops changes when the record count is unchanged~~ — FIXED
 
 `src/api/routes.js:72` treats "same length" as "same data" and returns early
 without saving. A session where you only toggle likes or dislikes, and watch
@@ -142,9 +144,8 @@ nothing new, never reaches `saveWatchTracker`. The browser's IndexedDB keeps the
 change, so nothing is lost outright, but `YouTubeWatchTracker.json` — the only
 backup of an 11,000-record history — silently falls behind.
 
-Fix: compare content, not length. A cheap hash of the serialised array, or a
-`lastModified` counter the userscript increments on every write, is enough.
-Keep the existing shrink guard.
+**Fixed**: `routes.js` compares a sha256 of the serialised array instead of its
+length. The shrink guard is unchanged. Covered by `test/upload-db.test.js`.
 
 ### 12. Startup race on `logger.updateDownloadVideos`
 

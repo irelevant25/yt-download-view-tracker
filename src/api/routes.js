@@ -3,6 +3,7 @@
  * Defines endpoints for the Express server
  */
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const logger = require('../utils/logger');
 const notifications = require('../utils/notifications');
@@ -118,7 +119,10 @@ router.post('/upload-db', async (req, res) => {
     // Data-loss guard: compare against the last saved snapshot
     const savedData = await storage.readWatchTracker();
 
-    if (savedData?.length === data.length) {
+    // Compare contents, not length. Length was standing in for "unchanged", so
+    // a session that only toggled likes or dislikes — no new videos watched —
+    // never reached saveWatchTracker, and the on-disk backup fell behind.
+    if (Array.isArray(savedData) && fingerprint(savedData) === fingerprint(data)) {
         logger.info('Watch tracker data has not changed.');
         return res.status(200).json({
             message: 'Data has not changed.',
@@ -152,6 +156,16 @@ router.post('/upload-db', async (req, res) => {
         return res.status(500).json({ error: 'Failed to save data' });
     }
 });
+
+/**
+ * A content fingerprint of the watch-history array, used to tell an unchanged
+ * upload from a changed one of the same length.
+ * @param {Array} records
+ * @returns {string} Hex sha256
+ */
+function fingerprint(records) {
+    return crypto.createHash('sha256').update(JSON.stringify(records)).digest('hex');
+}
 
 /**
  * Extract YouTube video codes (the ?v= value) from a list of full URLs.

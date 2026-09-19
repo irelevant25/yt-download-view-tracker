@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Video Tracker
 // @namespace    http://tampermonkey.net/
-// @version      2026-09-19
+// @version      2026-09-19b
 // @description  Monitor YouTube video interactions efficiently while complying with Trusted Types.
 // @author       irelevant
 // @match        *://*.youtube.com/*
@@ -1017,6 +1017,28 @@
         };
     }
 
+    /**
+     * Accept either datetime representation and return unix seconds.
+     * The store holds numbers; download() emits "DD.MM.YYYY HH:MM:SS".
+     * @param {string|number} value
+     * @returns {number} Unix seconds, or 0 if it cannot be read
+     */
+    function parseDatetime(value) {
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+
+        if (typeof value === 'string') {
+            const match = /^(\d{2})\.(\d{2})\.(\d{4})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(value.trim());
+            if (match) {
+                const [, d, mo, y, h, mi, s] = match.map(Number);
+                return Math.floor(new Date(y, mo - 1, d, h, mi, s).getTime() / 1000);
+            }
+            const parsed = Date.parse(value);
+            if (!Number.isNaN(parsed)) return Math.floor(parsed / 1000);
+        }
+
+        return 0;
+    }
+
     async function upload() {
         return new Promise((resolve, reject) => {
             const input = document.createElement('input');
@@ -1046,7 +1068,11 @@
 
                 store.clear().onsuccess = () => {
                     for (const { key, ...videoData } of data) {
-                        store.put(videoData, key);
+                        // download() writes datetime out as "DD.MM.YYYY HH:MM:SS"
+                        // for readability. Storing that string back would leave
+                        // every date as Invalid Date, so turn it back into the
+                        // unix seconds the rest of the script expects.
+                        store.put({ ...videoData, datetime: parseDatetime(videoData.datetime) }, key);
                     }
                 };
 

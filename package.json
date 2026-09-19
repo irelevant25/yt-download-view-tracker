@@ -53,7 +53,7 @@
     "build": "node clean.js && electron-builder",
     "build:legacy": "electron-builder",
     "clean": "rimraf dist",
-    "test": "node test/api-security.test.js && node test/queue.test.js && node test/update.test.js"
+    "test": "node test/api-security.test.js && node test/upload-db.test.js && node test/queue.test.js && node test/update.test.js"
   },
   "keywords": [
     "youtube",

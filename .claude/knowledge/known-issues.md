@@ -244,9 +244,10 @@ went from 157 MB to 75 MB, and the CI step that fetched them is gone — which
 also removes the api.github.com rate limit that broke the v2.0.1 release.
 Extraction now takes only ffmpeg.exe and ffprobe.exe, not the 166 MB ffplay.exe.
 
-## Open — needs a decision
+## Deferred by decision
 
-- **Electron 34 is old.** `npm audit` reports high-severity advisories against
+- **Electron 34 is old — staying on it for now (decided 2026-09-19).** Do not
+  upgrade unprompted. `npm audit` reports high-severity advisories against
   `electron <= 40.10.2`, and 34.5.8 is what ships to users. Runtime dependencies
   are clean (`npm audit --omit=dev` finds nothing); this is the framework
   itself. Upgrading to 40+ is a Chromium and Node jump that needs real testing,

@@ -23,6 +23,7 @@
                 <button class="tab" data-panel="queue">Queue <span class="badge" id="queueBadge" hidden>0</span></button>
                 <button class="tab" data-panel="library">Library</button>
                 <button class="tab" data-panel="storage">Storage</button>
+                <button class="tab" data-panel="settings">Settings <span class="badge badge--accent" id="updateBadge" hidden>1</span></button>
             </nav>
 
             <div class="header-controls">
@@ -126,6 +127,67 @@
                     </div>
                     <div id="repairReport" class="report"></div>
                 </section>
+            </div>
+        </main>
+
+        <!-- ── Settings ─────────────────────────────────────────────── -->
+        <main id="panel-settings" class="panel">
+            <div class="scroll-area pad">
+                <section class="settings-section">
+                    <h2>Cookies</h2>
+                    <p class="muted">
+                        Age-restricted and members-only videos need a signed-in YouTube session. yt-dlp can borrow one
+                        from a browser you are logged into, or read an exported <code>cookies.txt</code>.
+                    </p>
+
+                    <div class="field">
+                        <label class="radio"><input type="radio" name="cookieMode" value="none"> Don't use cookies</label>
+                        <label class="radio"><input type="radio" name="cookieMode" value="browser"> Read them from a browser</label>
+                        <label class="radio"><input type="radio" name="cookieMode" value="file"> Use a cookies.txt file</label>
+                    </div>
+
+                    <div class="field-group" id="cookieBrowserFields">
+                        <label class="field-label" for="cookieBrowser">Browser</label>
+                        <select id="cookieBrowser" class="input select"></select>
+                        <label class="field-label" for="cookieProfile">Profile <span class="muted">(optional)</span></label>
+                        <input id="cookieProfile" class="input" type="text" placeholder="Default profile" autocomplete="off">
+                        <p class="note">
+                            Firefox is the reliable choice on Windows. Chrome, Edge and other Chromium browsers encrypt
+                            their cookies in a way yt-dlp often cannot read since Chrome 127 — if downloads fail with a
+                            cookie or decryption error, export a cookies.txt instead.
+                        </p>
+                    </div>
+
+                    <div class="field-group" id="cookieFileFields">
+                        <label class="field-label">Cookies file</label>
+                        <div class="file-row">
+                            <input id="cookieFile" class="input" type="text" readonly placeholder="No file chosen">
+                            <button id="chooseCookieFileBtn" class="btn">Choose…</button>
+                        </div>
+                        <p class="note">
+                            Netscape format, as produced by a "Get cookies.txt" browser extension while signed in to
+                            YouTube. Treat this file like a password.
+                        </p>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h2>Updates</h2>
+                    <p id="updateText" class="muted">Not checked yet.</p>
+                    <div class="progress" id="updateProgress" hidden><div class="progress-fill" id="updateProgressFill"></div></div>
+                    <div class="repair-actions">
+                        <button id="checkUpdateBtn" class="btn">Check now</button>
+                        <button id="downloadUpdateBtn" class="btn btn--primary" hidden>Download update</button>
+                        <button id="installUpdateBtn" class="btn btn--primary" hidden>Restart and install</button>
+                        <button id="releasePageBtn" class="btn" hidden>Release notes</button>
+                    </div>
+                    <label class="radio"><input type="checkbox" id="autoCheckUpdates"> Check for updates automatically</label>
+                </section>
+
+                <div class="settings-actions">
+                    <button id="saveSettingsBtn" class="btn btn--primary">Save settings</button>
+                    <span id="settingsMessage" class="muted"></span>
+                </div>
             </div>
         </main>
 

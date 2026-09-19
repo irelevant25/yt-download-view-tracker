@@ -44,9 +44,22 @@ This file covers only what the README does not: invariants, landmines and conven
    Anything reaching `logger.log()` reaches a Node-enabled renderer. Keep using
    `textContent` (never `innerHTML`) in `renderer/renderer.js`.
 
-6. **Version lives in three places** and they drift: `package.json` `version`,
-   the `<span class="logo-version">` in `index.html`, and the git tag.
-   `/release` keeps them in step.
+6. **`package.json` `version` is the single source of truth.** The header reads
+   it over IPC and the workflow refuses a tag that disagrees. Never hardcode a
+   version anywhere else.
+
+7. **`build.portable.unpackDirName` must stay `true`.** The default extracts every
+   launch of a build into the same `%TEMP%` folder, so a second launch — or the
+   self-update handover — wipes the running instance's files. (`false` does *not*
+   fix it; electron-builder treats it like the default.)
+
+8. **Anything that must outlive this run uses `CONFIG.LAUNCHED_EXE`,** never
+   `process.execPath`. A portable build runs from a temp copy deleted on exit.
+   Protocol registration and the Start Menu shortcut are skipped in dev, where
+   the exe is bare `electron.exe`.
+
+9. **Tests must not touch real data.** Every test points `CONFIG` paths at a temp
+   sandbox before requiring services. `npm test` runs all three suites.
 
 ## Quick facts
 

@@ -102,7 +102,27 @@ Note step 5 opens the API **before** step 7 guarantees yt-dlp exists.
 | `services/tracker.js` | Reading and querying the ~14k-record watch history |
 | `services/stats.js` | Directory sizes and free space on the videos drive |
 | `services/updater.js` | Fetching and updating yt-dlp/ffmpeg |
+| `services/settings.js` | `settings.json`: cookie source and update preferences |
+| `services/appUpdater.js` | Checking GitHub for a newer app, sha256-verified download, launching it |
+| `services/handover.js` | The new version's side: wait for the old pid, delete the old exe |
 | `ui/ipc.js` | Every channel the window can call, in one auditable place |
+
+## Self-update
+
+`electron-updater` does not support the portable target, so it is manual:
+
+1. `check()` reads `releases/latest` and looks for exactly
+   `YouTube-Checker-<version>.exe` — releases have carried stray assets.
+2. `download()` streams it next to the running exe as `.download`, hashes it,
+   and renames it only if the sha256 matches the digest GitHub publishes.
+3. `apply()` spawns it with `--wait-for-pid=<this pid>` and
+   `--replaced-exe=<this exe>`, then quits.
+4. The new instance waits for that pid before taking the single-instance lock
+   and port 5000, then deletes the old exe once the old wrapper releases it.
+   It only deletes a sibling file named like one of our exes.
+
+Tested against a real running old instance: the new one waits, takes over
+within a second of the old one quitting, and removes the old exe.
 
 ## Window
 
@@ -113,6 +133,7 @@ Four panels (`index.html` + `renderer/renderer.js`), switched by the tab bar:
 - **Library** — the watch history, searchable and filterable, paged at 200 rows
   because putting 14,000 rows in the DOM is not viable
 - **Storage** — claimed space, free space, a drive meter, and library repair
+- **Settings** — cookie source (none / browser / cookies.txt) and app updates
 
 The renderer builds nodes with a small `el()` helper and `textContent` only.
 `index.html` carries a CSP; the renderer still has Node integration, so that

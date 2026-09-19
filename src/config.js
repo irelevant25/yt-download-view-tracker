@@ -18,6 +18,14 @@ const LOGS_DIR = path.join(BASE_DIR, 'logs');
 // Binaries are in bin/ during development; electron-builder extraFiles copies them to app root in production
 const BIN_DIR = app.isPackaged ? BASE_DIR : path.join(BASE_DIR, 'bin');
 
+// The exe the user actually launched. A portable build runs a copy extracted
+// to %TEMP% and deletes it on exit, so anything that must outlive this run —
+// the Start Menu shortcut, the protocol handler, self-update — points here,
+// never at process.execPath.
+const LAUNCHED_EXE = app.isPackaged
+    ? (process.env.PORTABLE_EXECUTABLE_FILE || process.execPath)
+    : process.execPath;
+
 // Application settings
 const CONFIG = {
     APP_NAME: 'YouTube Checker',
@@ -44,6 +52,14 @@ const CONFIG = {
     // How often the queue re-checks whether a retry has come due.
     QUEUE_TICK_MS: 5 * 1000,
 
+    // App self-update
+    UPDATE_REPO: 'irelevant25/yt-download-view-tracker',
+    UPDATE_CHECK_INTERVAL_MS: 24 * 60 * 60 * 1000,
+    LAUNCHED_EXE,
+
+    // Browsers yt-dlp can read cookies from (its --cookies-from-browser names)
+    COOKIE_BROWSERS: ['firefox', 'chrome', 'edge', 'brave', 'opera', 'vivaldi', 'chromium', 'whale'],
+
     // Only these origins may call the local API. The userscript uses
     // GM_xmlhttpRequest, which is not subject to CORS, so this does not affect it.
     ALLOWED_ORIGINS: [
@@ -61,6 +77,7 @@ const CONFIG = {
     // Files
     DOWNLOADED_VIDEOS_FILE: path.join(BASE_DIR, 'downloaded_videos.json'),
     QUEUE_FILE: path.join(BASE_DIR, 'download_queue.json'),
+    SETTINGS_FILE: path.join(BASE_DIR, 'settings.json'),
     WATCH_TRACKER_FILE: path.join(BASE_DIR, 'YouTubeWatchTracker.json'),
     ACTIVITY_LOG_FILE: path.join(LOGS_DIR, 'activity.log'),
     FFMPEG_PATH: path.join(BIN_DIR, 'ffmpeg.exe'),

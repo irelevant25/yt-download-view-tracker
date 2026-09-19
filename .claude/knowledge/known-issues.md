@@ -48,7 +48,13 @@ listener to `127.0.0.1`, and require a shared secret generated on first run.
 attacker-controlled, then used directly in `path.join(LOGS_DIRECTORY, ...)`.
 A url ending in `=../../../foo` writes outside `logs/`.
 
-### 4. Binaries are downloaded and executed without verification
+### 4. ~~Binaries are downloaded and executed without verification~~ — FIXED
+
+yt-dlp, the ffmpeg zip and the app's own updates are all checked against the
+sha256 digest GitHub publishes per asset, before being renamed into place.
+Redirects are capped at 5 everywhere. Kept below for history.
+
+#### Original finding
 
 `src/services/updater.js:47` follows redirects with **no redirect limit** and no
 checksum or signature check, then executes the result. `tryDownload` recurses on
@@ -214,3 +220,30 @@ morning, failed in the evening on the same code".
 
 Fix: pass `GITHUB_TOKEN` through as an `Authorization` header when present.
 See the `/release` skill.
+
+---
+
+## Found and fixed while building features
+
+- **Start Menu shortcut pointed at a deleted temp file.** `createShortcut()` used
+  `process.execPath`, which in a portable build is the copy extracted to
+  `%TEMP%` and removed on exit. Now `CONFIG.LAUNCHED_EXE`.
+- **Dev runs hijacked the protocol handler.** Every `npm run dev` registered bare
+  `node_modules\electron.exe` as the `youtube-checker://` handler, breaking the
+  userscript's Run button until the real exe next started. Skipped in dev now.
+- **Two launches of one build trampled each other's files.** See CLAUDE.md
+  rule 7 (`unpackDirName`).
+- **No single-instance lock.** A second launch fought over port 5000 and added a
+  second tray icon. It now focuses the existing window instead.
+- **`app.quit()` was swallowed by the window.** The close handler cancels every
+  close unless the quitting flag is set, and only the tray's Exit set it. Now
+  set in `before-quit`, so any quit path works.
+
+## Open, found while testing
+
+- **The release exe bundles binaries it never uses.** `extraFiles` packs
+  yt-dlp, ffmpeg and ffprobe into the portable exe, which extracts them to its
+  temp folder. But a packaged build's `BIN_DIR` is the folder *next to the exe*,
+  so they are never read, and first run downloads them all again. Either stop
+  bundling them (smaller exe) or copy them out of the bundle on first run
+  (instant, offline first start). Needs a decision.

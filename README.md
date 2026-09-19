@@ -136,6 +136,26 @@ The script:
 
 ---
 
+## Settings
+
+Open the window from the tray icon and go to **Settings**. Stored in `settings.json` next to the exe.
+
+### Cookies
+
+Age-restricted and members-only videos need a signed-in YouTube session.
+
+| Option | What it does |
+|--------|-------------|
+| Don't use cookies | Default. Public videos only. |
+| Read them from a browser | Passes `--cookies-from-browser` to yt-dlp. **Firefox** is the reliable choice on Windows — Chrome, Edge and other Chromium browsers encrypt cookies in a way yt-dlp often can't read since Chrome 127. |
+| Use a cookies.txt file | Passes `--cookies`. Export one with a "Get cookies.txt" browser extension while signed in. Treat the file like a password. |
+
+### Updates
+
+The app checks GitHub for a newer release at startup and once a day, and shows a notification when one exists. **Settings → Download update** fetches it next to the current exe and verifies its sha256 against the digest GitHub publishes; **Restart and install** switches over and deletes the old exe. Nothing installs without you clicking.
+
+---
+
 ## Logging
 
 All logs are written to the `logs/` directory (relative to where the app/exe is running):

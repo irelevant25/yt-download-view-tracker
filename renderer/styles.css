@@ -549,3 +549,89 @@ body {
     justify-content: flex-start;
     gap: 10px;
 }
+
+/* ── Settings ────────────────────────────────────────────────────────── */
+
+.badge--accent {
+    background: var(--accent-green);
+}
+
+.settings-section {
+    max-width: 720px;
+    margin-bottom: 32px;
+}
+
+.settings-section h2 {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.settings-section code {
+    font-family: "Consolas", monospace;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 14px 0;
+}
+
+.radio {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.field-group {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 10px 14px;
+    align-items: center;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+}
+
+.field-group[hidden] {
+    display: none;
+}
+
+.field-label {
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+.field-group .note {
+    grid-column: 1 / -1;
+    font-size: 0.8rem;
+    opacity: 0.6;
+    line-height: 1.45;
+}
+
+.file-row {
+    display: flex;
+    gap: 8px;
+}
+
+.file-row .input {
+    flex: 1;
+}
+
+.settings-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-bottom: 20px;
+}
+
+#updateProgress {
+    max-width: 420px;
+    margin-bottom: 10px;
+}

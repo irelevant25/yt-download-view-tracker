@@ -32,8 +32,10 @@ function initializeUI() {
     wireQueue();
     wireLibrary();
     wireStorage();
+    wireSettings();
 
     ipcRenderer.on('log', handleLogMessage);
+    ipcRenderer.on('update-status', (_event, status) => renderUpdateStatus(status));
     ipcRenderer.on('download-completed', handleDownloadCompleted);
     ipcRenderer.on('queue-changed', (_event, status) => renderQueue(status));
     ipcRenderer.on('download-progress', (_event, progress) => updateProgress(progress));
@@ -41,6 +43,7 @@ function initializeUI() {
     addLogMessage(new Date().toLocaleString(), 'App started. Logs will appear here.', 'green');
 
     refreshQueue();
+    ipcRenderer.invoke('get-update-status').then(renderUpdateStatus);
     ipcRenderer.send('ui-initialized');
 }
 
@@ -85,6 +88,7 @@ function selectPanel(name) {
     if (name === 'library') refreshLibrary();
     if (name === 'storage') refreshStorage();
     if (name === 'queue') refreshQueue();
+    if (name === 'settings') loadSettings();
 }
 
 // ── Logs ────────────────────────────────────────────────────────────────
@@ -427,6 +431,107 @@ function renderRepairResult(result) {
     const lines = [`Renamed ${result.renamed.length} file(s). ${result.recordCount} record(s) tracked.`];
     if (result.failed.length) lines.push(`${result.failed.length} could not be renamed — see the log.`);
     $('repairReport').replaceChildren(...lines.map(text => el('p', { text })));
+}
+
+// ── Settings ────────────────────────────────────────────────────────────
+
+function wireSettings() {
+    document.querySelectorAll('input[name="cookieMode"]').forEach((radio) => {
+        radio.addEventListener('change', syncCookieFields);
+    });
+
+    $('chooseCookieFileBtn').addEventListener('click', async () => {
+        const chosen = await ipcRenderer.invoke('choose-cookies-file');
+        if (chosen) $('cookieFile').value = chosen;
+    });
+
+    $('saveSettingsBtn').addEventListener('click', saveSettings);
+
+    $('checkUpdateBtn').addEventListener('click', () => ipcRenderer.invoke('check-for-update'));
+    $('downloadUpdateBtn').addEventListener('click', () => ipcRenderer.invoke('download-update'));
+    $('installUpdateBtn').addEventListener('click', () => ipcRenderer.invoke('install-update'));
+    $('releasePageBtn').addEventListener('click', () => ipcRenderer.invoke('open-release-page'));
+}
+
+async function loadSettings() {
+    const { settings, browsers } = await ipcRenderer.invoke('get-settings');
+
+    const select = $('cookieBrowser');
+    if (select.options.length === 0) {
+        select.replaceChildren(...browsers.map((name) => {
+            const option = el('option', { text: name.charAt(0).toUpperCase() + name.slice(1) });
+            option.value = name;
+            return option;
+        }));
+    }
+
+    const mode = document.querySelector(`input[name="cookieMode"][value="${settings.cookies.mode}"]`);
+    if (mode) mode.checked = true;
+    select.value = settings.cookies.browser;
+    $('cookieProfile').value = settings.cookies.profile;
+    $('cookieFile').value = settings.cookies.file;
+    $('autoCheckUpdates').checked = settings.updates.autoCheck;
+    $('settingsMessage').textContent = '';
+
+    syncCookieFields();
+}
+
+/** Show only the fields that apply to the selected cookie source. */
+function syncCookieFields() {
+    const mode = document.querySelector('input[name="cookieMode"]:checked')?.value || 'none';
+    $('cookieBrowserFields').hidden = mode !== 'browser';
+    $('cookieFileFields').hidden = mode !== 'file';
+}
+
+async function saveSettings() {
+    const next = {
+        cookies: {
+            mode: document.querySelector('input[name="cookieMode"]:checked')?.value || 'none',
+            browser: $('cookieBrowser').value,
+            profile: $('cookieProfile').value,
+            file: $('cookieFile').value
+        },
+        updates: { autoCheck: $('autoCheckUpdates').checked }
+    };
+
+    const { warnings } = await ipcRenderer.invoke('save-settings', next);
+    const message = $('settingsMessage');
+    message.textContent = warnings.length ? warnings.join(' ') : 'Saved. New downloads will use these settings.';
+    message.classList.toggle('error', warnings.length > 0);
+}
+
+/**
+ * Reflect the self-updater's state in the Settings panel and the tab badge.
+ * @param {Object} status
+ */
+function renderUpdateStatus(status) {
+    if (!status) return;
+
+    const text = {
+        idle: 'Not checked yet.',
+        checking: 'Checking GitHub for a newer version…',
+        'up-to-date': `You are on the latest version${status.current ? ` (v${status.current})` : ''}.`,
+        available: `Version v${status.latest} is available — you have v${status.current}.`,
+        downloading: `Downloading v${status.latest}… ${status.percent}%`,
+        ready: `v${status.latest} is downloaded and verified. Restart to switch over.`,
+        error: `Update problem: ${status.error}`
+    }[status.state] || '';
+
+    const updateText = $('updateText');
+    updateText.textContent = status.state === 'ready' && !status.canInstall
+        ? `${text} (Installing only works in the packaged app.)`
+        : text;
+    updateText.classList.toggle('error', status.state === 'error');
+
+    $('updateProgress').hidden = status.state !== 'downloading';
+    $('updateProgressFill').style.width = `${status.percent || 0}%`;
+
+    $('downloadUpdateBtn').hidden = status.state !== 'available';
+    $('installUpdateBtn').hidden = !(status.state === 'ready' && status.canInstall);
+    $('releasePageBtn').hidden = !status.releaseUrl || status.state === 'up-to-date';
+    $('checkUpdateBtn').disabled = status.state === 'checking' || status.state === 'downloading';
+
+    $('updateBadge').hidden = !['available', 'ready'].includes(status.state);
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────────

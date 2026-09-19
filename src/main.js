@@ -17,12 +17,18 @@ const library = require('./services/library');
 const queue = require('./services/queue');
 const ipc = require('./ui/ipc');
 const updater = require('./services/updater');
+const settings = require('./services/settings');
+const appUpdater = require('./services/appUpdater');
+const handover = require('./services/handover');
 const windowManager = require('./ui/window');
 const trayManager = require('./ui/tray');
 
 // Downloaded URLs, shared with the IPC layer by reference so the library
 // panel always sees the current list.
 let downloadedVideosRef = [];
+
+// Set when this instance was launched by a self-update of an older one.
+const launchArgs = handover.parseLaunchArgs(process.argv);
 
 /**
  * Set app user model ID - MUST be called before app ready
@@ -36,6 +42,10 @@ app.setAppUserModelId('com.yourdomain.youtubechecker');
 function createShortcut() {
     if (process.platform !== 'win32') return;
 
+    // Same reasoning as the protocol handler: a dev run would point the Start
+    // Menu entry at bare electron.exe.
+    if (!app.isPackaged) return;
+
     // Define the Start Menu shortcut path.
     const shortcutPath = path.join(
         process.env.APPDATA,
@@ -48,7 +58,10 @@ function createShortcut() {
 
     // Define shortcut options including target, icon, and AppUserModelId.
     const options = {
-        target: process.execPath,
+        // The exe the user launched, not process.execPath — in a portable
+        // build that is a temp copy deleted on exit, which left the shortcut
+        // pointing at nothing.
+        target: CONFIG.LAUNCHED_EXE,
         // args: '',
         // description: 'My Portable Electron App',
         // icon: path.join(__dirname, 'icon.ico'),
@@ -59,7 +72,9 @@ function createShortcut() {
     if (fs.existsSync(shortcutPath)) {
         const shortcutItem = shell.readShortcutLink(shortcutPath);
 
-        if (shortcutItem && shortcutItem.appUserModelId === options.appUserModelId) {
+        if (shortcutItem
+            && shortcutItem.appUserModelId === options.appUserModelId
+            && shortcutItem.target === options.target) {
             logger.info(`Shortcut already exists: ${shortcutPath}`);
             return;
         }
@@ -81,6 +96,9 @@ async function initializeApp() {
     try {
         // Ensure required directories exist (must run first so logs/ is available)
         await storage.ensureDirectories();
+
+        // Cookie source and update preferences
+        settings.load();
 
         // Create main window
         const mainWindow = windowManager.createMainWindow();
@@ -137,6 +155,29 @@ async function initializeApp() {
         // Start daily yt-dlp update checker
         updater.startUpdateScheduler();
 
+        // Check GitHub for a newer version of the app itself. The app lives in
+        // the tray, so say so with a notification rather than only in a window
+        // nobody may have open.
+        let notifiedVersion = null;
+        appUpdater.events.on('status', (status) => {
+            if (status.state === 'available' && status.latest !== notifiedVersion) {
+                notifiedVersion = status.latest;
+                notifications.showNotification(
+                    `Update available: v${status.latest}`,
+                    'Open YouTube Checker → Settings to install it.'
+                );
+            }
+        });
+
+        if (settings.get().updates.autoCheck) {
+            appUpdater.startScheduler();
+        }
+
+        // If a self-update launched us, the old exe can go once it lets go
+        if (launchArgs.replacedExe) {
+            handover.removeReplacedExe(launchArgs.replacedExe);
+        }
+
         // Initialize UI downloaded videos list
         logger.updateDownloadVideos(downloadedVideos);
 
@@ -155,8 +196,46 @@ async function initializeApp() {
 
 // ----- ELECTRON APP LIFECYCLE EVENTS -----
 
+/**
+ * Only one instance may run: two would fight over port 5000 and both put an
+ * icon in the tray. A second launch — a double-click, or the userscript's
+ * "Run" button — just brings the existing window forward.
+ *
+ * A self-update launches the new version while the old one is still quitting,
+ * so it is told to wait for the old process before claiming the lock.
+ *
+ * @returns {Promise<boolean>} Whether this instance should carry on
+ */
+async function claimInstance() {
+    if (launchArgs.waitForPid) {
+        const exited = await handover.waitForExit(launchArgs.waitForPid, 30000);
+        if (!exited) {
+            logger.error(`Previous instance (pid ${launchArgs.waitForPid}) did not exit in time.`);
+        }
+    }
+
+    if (!app.requestSingleInstanceLock()) {
+        app.quit();
+        return false;
+    }
+
+    app.on('second-instance', () => {
+        const window = windowManager.getMainWindow();
+        if (!window) return;
+        if (window.isMinimized()) window.restore();
+        window.show();
+        window.focus();
+    });
+
+    return true;
+}
+
 // App ready event
-app.on('ready', initializeApp);
+app.on('ready', async () => {
+    if (await claimInstance()) {
+        initializeApp();
+    }
+});
 
 // Prevent default quit behavior
 app.on('window-all-closed', (event) => {
@@ -165,7 +244,9 @@ app.on('window-all-closed', (event) => {
 
 // Release the API port on the way out instead of holding it during a slow quit
 app.on('before-quit', () => {
+    windowManager.setQuittingState(true);
     queue.stop();
+    appUpdater.stopScheduler();
     apiServer.stopServer();
 });
 

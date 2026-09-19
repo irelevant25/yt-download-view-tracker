@@ -18,8 +18,16 @@ function registerProtocolHandler() {
         return Promise.resolve();
     }
 
+    // In dev the running exe is node_modules' bare electron.exe, which opens an
+    // empty window when launched without the app path. Registering that
+    // hijacked the handler away from the real install until it next started.
+    if (!app.isPackaged) {
+        logger.info('Protocol registration skipped in development.');
+        return Promise.resolve();
+    }
+
     return new Promise((resolve) => {
-        const exePath = app.isPackaged ? process.env.PORTABLE_EXECUTABLE_FILE : path.resolve(process.execPath);
+        const exePath = app.isPackaged ? CONFIG.LAUNCHED_EXE : path.resolve(process.execPath);
         // logger.info(JSON.stringify(process.env)); // debuging purpose
 
         const isExists = app.isDefaultProtocolClient(CONFIG.APP_ID, exePath);

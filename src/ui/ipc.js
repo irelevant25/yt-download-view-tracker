@@ -4,7 +4,7 @@
  * Everything the renderer can ask for or act on is registered here, in one
  * place, so the set of things the UI can reach stays easy to audit.
  */
-const { ipcMain, app, shell } = require('electron');
+const { ipcMain, app, shell, dialog } = require('electron');
 const CONFIG = require('../config');
 const logger = require('../utils/logger');
 const queue = require('../services/queue');
@@ -12,6 +12,8 @@ const library = require('../services/library');
 const tracker = require('../services/tracker');
 const stats = require('../services/stats');
 const downloader = require('../services/downloader');
+const settings = require('../services/settings');
+const appUpdater = require('../services/appUpdater');
 
 // Parsed watch history, kept in memory so searching 11k rows is instant.
 let records = [];
@@ -97,7 +99,54 @@ function register({ getWindow, getDownloadedVideos: downloadedGetter }) {
         return error === '';
     });
 
+    // ── settings ───────────────────────────────────────────────────────────
+
+    ipcMain.handle('get-settings', () => ({
+        settings: settings.get(),
+        browsers: CONFIG.COOKIE_BROWSERS
+    }));
+
+    ipcMain.handle('save-settings', (_event, next) => {
+        const result = settings.save(next);
+        if (result.settings.updates.autoCheck) appUpdater.startScheduler();
+        else appUpdater.stopScheduler();
+        return result;
+    });
+
+    // The file picker runs in the main process, so the renderer never has to
+    // invent a path itself.
+    ipcMain.handle('choose-cookies-file', async () => {
+        const result = await dialog.showOpenDialog(getWindow(), {
+            title: 'Choose a cookies.txt file',
+            properties: ['openFile'],
+            filters: [
+                { name: 'Cookies file', extensions: ['txt'] },
+                { name: 'All files', extensions: ['*'] }
+            ]
+        });
+        return result.canceled ? null : result.filePaths[0];
+    });
+
+    // ── app updates ────────────────────────────────────────────────────────
+
+    ipcMain.handle('get-update-status', () => appUpdater.getStatus());
+    ipcMain.handle('check-for-update', () => appUpdater.check());
+    ipcMain.handle('download-update', () => appUpdater.download());
+    ipcMain.handle('install-update', () => appUpdater.apply());
+    ipcMain.handle('open-release-page', async () => {
+        const { releaseUrl } = appUpdater.getStatus();
+        if (releaseUrl && releaseUrl.startsWith('https://github.com/')) {
+            await shell.openExternal(releaseUrl);
+            return true;
+        }
+        return false;
+    });
+
     // ── live pushes ────────────────────────────────────────────────────────
+
+    appUpdater.events.on('status', (status) => {
+        send(getWindow(), 'update-status', status);
+    });
 
     downloader.events.on('progress', (progress) => {
         send(getWindow(), 'download-progress', progress);

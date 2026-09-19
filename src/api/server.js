@@ -54,17 +54,29 @@ function startServer() {
         // Register routes
         app.use('/', routes.router);
 
-        // Bind to loopback only — this API has no business being reachable
-        // from the local network.
-        server = app.listen(CONFIG.PORT, '127.0.0.1', () => {
-            logger.success(`API server running on http://127.0.0.1:${CONFIG.PORT}`);
-            resolve(true);
-        });
+        // The port is fixed — the userscript has it hardcoded — so when it is
+        // briefly held (a self-update hands over while the old instance is
+        // still releasing it) wait and retry rather than failing startup.
+        const listen = (attemptsLeft) => {
+            // Bind to loopback only — this API has no business being reachable
+            // from the local network.
+            server = app.listen(CONFIG.PORT, '127.0.0.1', () => {
+                logger.success(`API server running on http://127.0.0.1:${CONFIG.PORT}`);
+                resolve(true);
+            });
 
-        server.on('error', (error) => {
-            logger.error(`API server error: ${error.message}`);
-            resolve(false);
-        });
+            server.on('error', (error) => {
+                if (error.code === 'EADDRINUSE' && attemptsLeft > 0) {
+                    logger.info(`Port ${CONFIG.PORT} is busy, retrying (${attemptsLeft} left)...`);
+                    setTimeout(() => listen(attemptsLeft - 1), 1000);
+                    return;
+                }
+                logger.error(`API server error: ${error.message}`);
+                resolve(false);
+            });
+        };
+
+        listen(10);
     });
 }
 

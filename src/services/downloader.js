@@ -12,6 +12,7 @@ const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const CONFIG = require('../config');
 const logger = require('../utils/logger');
+const settings = require('./settings');
 
 /** A YouTube video id is always 11 chars of [A-Za-z0-9_-]. */
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
@@ -62,6 +63,8 @@ function buildArgs(videoUrl) {
         '--http-chunk-size', '10M',
         '--force-ipv4',
         '--no-update',
+        // Age-restricted and members-only videos need a signed-in session.
+        ...settings.cookieArgs(),
         // Record where the file came from, without the old shell --exec hack.
         '--embed-metadata',
         '--parse-metadata', 'webpage_url:%(meta_comment)s',

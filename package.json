@@ -49,6 +49,9 @@
     "directories": {
       "buildResources": "build",
       "output": "dist"
+    },
+    "portable": {
+      "unpackDirName": true
     }
   },
   "scripts": {
@@ -59,7 +62,7 @@
     "build": "node scripts/install-binaries.js && node clean.js && electron-builder",
     "build:legacy": "node scripts/install-binaries.js && electron-builder",
     "clean": "rimraf dist",
-    "test": "node test/api-security.test.js && node test/queue.test.js"
+    "test": "node test/api-security.test.js && node test/queue.test.js && node test/update.test.js"
   },
   "keywords": [
     "youtube",

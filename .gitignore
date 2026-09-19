@@ -16,6 +16,7 @@ videos/
 downloaded_videos.json
 YouTubeWatchTracker.json
 download_queue.json
+settings.json
 
 # Built application executables (for distribution only)
 YouTube Checker.exe

@@ -50,15 +50,6 @@ function createTray() {
     return tray;
 }
 
-/**
- * Get the tray instance
- * @returns {Tray|null} The tray instance
- */
-function getTray() {
-    return tray;
-}
-
 module.exports = {
-    createTray,
-    getTray
+    createTray
 };

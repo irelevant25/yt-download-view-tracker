@@ -320,7 +320,6 @@ module.exports = {
     remove,
     status,
     has,
-    backoffMs,
     // exported for tests
     _items: items
 };

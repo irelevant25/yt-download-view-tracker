@@ -39,15 +39,8 @@ jobs:
             exit 1
           fi
 
-      # Downloads yt-dlp.exe and ffmpeg suite into bin/ (gitignored, not in repo)
-      # GITHUB_TOKEN lifts the anonymous api.github.com rate limit, which runners
-      # hit intermittently because they share an IP pool.
-      - name: Download required binaries
-        run: node scripts/install-binaries.js
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # electron-builder reads bin/ via extraFiles and packages everything
+      # The app downloads yt-dlp and ffmpeg itself on first run, so nothing
+      # else has to be fetched here.
       - name: Build portable executable
         run: npx electron-builder
         env:

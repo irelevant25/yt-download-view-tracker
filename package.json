@@ -21,7 +21,7 @@
     ],
     "win": {
       "target": "portable",
-      "icon": "256.ico",
+      "icon": "icon.ico",
       "protocols": [
         {
           "name": "youtube-checker",
@@ -32,15 +32,6 @@
       ]
     },
     "extraFiles": [
-      {
-        "from": "bin",
-        "to": ".",
-        "filter": [
-          "ffmpeg.exe",
-          "ffprobe.exe",
-          "yt-dlp.exe"
-        ]
-      },
       {
         "from": "resources",
         "to": "resources"
@@ -59,8 +50,8 @@
     "install-bins": "node scripts/install-binaries.js",
     "start": "node start.js && electron .",
     "dev": "electron . --dev",
-    "build": "node scripts/install-binaries.js && node clean.js && electron-builder",
-    "build:legacy": "node scripts/install-binaries.js && electron-builder",
+    "build": "node clean.js && electron-builder",
+    "build:legacy": "electron-builder",
     "clean": "rimraf dist",
     "test": "node test/api-security.test.js && node test/queue.test.js && node test/update.test.js"
   },

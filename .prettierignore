@@ -1,4 +1,5 @@
-.angular/
+bin/
 dist/
 node_modules/
-projects/library-test/src/assets/eforms/
+videos/
+logs/

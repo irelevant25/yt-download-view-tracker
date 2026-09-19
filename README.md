@@ -108,13 +108,14 @@ npm run install-bins
 npm run build
 ```
 
-This runs three steps in sequence:
+This runs two steps in sequence:
 
-1. **Download binaries** — `node scripts/install-binaries.js` downloads `yt-dlp.exe` and `ffmpeg.exe/ffprobe.exe` into `bin/` if they are not already there (skips existing files).
-2. **Clean** — kills any running Electron/YouTube Checker processes and removes the `dist/` folder.
-3. **Package** — `electron-builder` bundles everything into a Windows portable executable at `dist/YouTube-Checker.exe`. The three binaries above are included via `extraFiles` and placed next to the exe.
+1. **Clean** — kills any running Electron/YouTube Checker processes and removes the `dist/` folder.
+2. **Package** — `electron-builder` bundles the app into a Windows portable executable at `dist/YouTube-Checker.exe`.
 
-The resulting `dist/YouTube-Checker.exe` is fully self-contained — just move it anywhere and run it.
+`yt-dlp` and `ffmpeg` are **not** bundled into the exe. A packaged build looks for them next to the exe and downloads them on first run, so bundling them only made the download twice as large for no benefit. The exe is about 75 MB; the tools add roughly 350 MB beside it on first launch.
+
+`bin/` is still needed to run the app from source — `npm run setup` or `npm run install-bins` fills it.
 
 ---
 
@@ -217,10 +218,9 @@ The workflow:
 1. Checks out the code on a `windows-latest` runner.
 2. Runs `npm ci` to install dependencies.
 3. Fails fast if the tag and `package.json` version disagree.
-4. Downloads the required binaries (`node scripts/install-binaries.js`).
-5. Builds the portable exe (`electron-builder`).
-6. Renames it to `YouTube-Checker-<version>.exe`.
-7. Creates a GitHub Release with auto-generated release notes and attaches that `.exe`.
+4. Builds the portable exe (`electron-builder`).
+5. Renames it to `YouTube-Checker-<version>.exe`.
+6. Clears any assets already on the release, then attaches that one `.exe` with auto-generated release notes.
 
 No extra secrets are required — the workflow uses the built-in `GITHUB_TOKEN`.
 

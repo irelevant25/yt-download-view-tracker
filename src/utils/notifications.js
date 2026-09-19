@@ -1,8 +1,7 @@
 /**
  * Notification utilities for the app
  */
-const { Notification, app } = require('electron');
-const path = require('path');
+const { Notification } = require('electron');
 const CONFIG = require('../config');
 
 /**

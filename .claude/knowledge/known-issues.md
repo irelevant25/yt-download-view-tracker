@@ -184,23 +184,13 @@ the declaration.
     `app.getVersion()` over IPC, and the workflow fails when the tag and
     `package.json` disagree.
     Bump with `npm version <patch|minor|major>`.
-20. `package.json` → `build.win.icon` is `"256.ico"`, which does not exist anywhere
-    in the repo. electron-builder silently falls back to `icon.ico` at the project
-    root, so the exe does get the right icon — by accident. Point it at a real path
-    (`icon.ico`, or `resources/icon256.ico` if you prefer that artwork) so the
-    config stops lying. Confirm the icon afterwards; the two files differ.
-21. `.vscode/launch.json` points at `${workspaceFolder}\main.js`, which does not
-    exist (it is `src/main.js`), and is a plain node launch rather than Electron.
-22. `.prettierrc` / `.prettierignore` are leftovers from an Angular project
-    (`.angular/`, `projects/library-test/`) and specify `tabWidth: 2` for `.js`
-    while the whole codebase uses 4.
-23. `npm audit` reports 6 advisories (`path-to-regexp` high via express 4, plus
-    `qs` and `file-type` via `music-metadata`). All DoS-class, all reachable only
-    from the local API. `npm audit fix` clears them.
-24. Dead exports: `downloader.getActiveDownloads`, `tray.getTray`.
-25. `utils/notifications.js` imports `app` and `path`, uses neither.
-26. `old - cmd ui/` and `old - electron simple/` are committed dead projects, and
-    `README-old.md` is superseded. Consider deleting.
+20. ~~`build.win.icon` pointed at a nonexistent `256.ico`~~ — **FIXED**, set to the `icon.ico` electron-builder was already falling back to; the built icon is byte-identical.
+21. ~~`.vscode/launch.json` pointed at a nonexistent `main.js`~~ — **FIXED**, now launches Electron with `--dev`, plus a test config.
+22. ~~`.prettierrc` / `.prettierignore` were Angular leftovers~~ — **FIXED**, now 4 spaces and single quotes, matching the code.
+23. ~~6 runtime advisories~~ — **FIXED**, `npm audit --omit=dev` finds nothing.
+24. ~~Dead exports~~ — **FIXED**, `tray.getTray` and `storage.readDownloadedVideosSync` removed.
+25. ~~`utils/notifications.js` unused imports~~ — **FIXED**.
+26. ~~Committed dead projects~~ — **FIXED**, `old - cmd ui/`, `old - electron simple/` and `README-old.md` deleted; they remain in history.
 
 ---
 
@@ -239,11 +229,19 @@ See the `/release` skill.
   close unless the quitting flag is set, and only the tray's Exit set it. Now
   set in `before-quit`, so any quit path works.
 
-## Open, found while testing
+## Resolved by unbundling the binaries
 
-- **The release exe bundles binaries it never uses.** `extraFiles` packs
-  yt-dlp, ffmpeg and ffprobe into the portable exe, which extracts them to its
-  temp folder. But a packaged build's `BIN_DIR` is the folder *next to the exe*,
-  so they are never read, and first run downloads them all again. Either stop
-  bundling them (smaller exe) or copy them out of the bundle on first run
-  (instant, offline first start). Needs a decision.
+The release exe used to pack yt-dlp, ffmpeg and ffprobe via `extraFiles`, but a
+packaged build's `BIN_DIR` is the folder *next to the exe*, so they were never
+read and first run downloaded them anyway. They are no longer bundled: the exe
+went from 157 MB to 75 MB, and the CI step that fetched them is gone — which
+also removes the api.github.com rate limit that broke the v2.0.1 release.
+Extraction now takes only ffmpeg.exe and ffprobe.exe, not the 166 MB ffplay.exe.
+
+## Open — needs a decision
+
+- **Electron 34 is old.** `npm audit` reports high-severity advisories against
+  `electron <= 40.10.2`, and 34.5.8 is what ships to users. Runtime dependencies
+  are clean (`npm audit --omit=dev` finds nothing); this is the framework
+  itself. Upgrading to 40+ is a Chromium and Node jump that needs real testing,
+  and is best done together with #5 (contextIsolation + preload).

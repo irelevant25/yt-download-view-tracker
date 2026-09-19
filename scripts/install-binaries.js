@@ -176,7 +176,8 @@ function extractExesFromZip(zipPath, destDir) {
         const script = [
             `Add-Type -Assembly System.IO.Compression.FileSystem`,
             `$zip = [IO.Compression.ZipFile]::OpenRead('${psQuote(zipPath)}')`,
-            `$zip.Entries | Where-Object { $_.Name -like '*.exe' } | ForEach-Object {`,
+            `$wanted = @('ffmpeg.exe','ffprobe.exe')`,
+            `$zip.Entries | Where-Object { $wanted -contains $_.Name } | ForEach-Object {`,
             `  $dest = Join-Path '${psQuote(destDir)}' $_.Name`,
             `  [IO.Compression.ZipFileExtensions]::ExtractToFile($_, $dest, $true)`,
             `}`,
@@ -229,7 +230,7 @@ async function installFfmpeg() {
     log(`Downloading ffmpeg ${release.tag_name} (~170 MB)...`);
     await downloadFile(asset.browser_download_url, zipPath, pct => log(`  ffmpeg: ${pct}%`), asset.digest);
 
-    log('Extracting ffmpeg.exe, ffprobe.exe, ffplay.exe...');
+    log('Extracting ffmpeg.exe and ffprobe.exe...');
     await extractExesFromZip(zipPath, BIN_DIR);
 
     try { fs.unlinkSync(zipPath); } catch {}

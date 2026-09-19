@@ -121,30 +121,11 @@ async function ensureDirectories() {
     }
 }
 
-/**
- * Synchronous version of reading downloaded videos (for initialization)
- * @returns {string[]} Array of downloaded video URLs
- */
-function readDownloadedVideosSync() {
-    if (!fsSync.existsSync(CONFIG.DOWNLOADED_VIDEOS_FILE)) {
-        return [];
-    }
-
-    try {
-        const fileContent = fsSync.readFileSync(CONFIG.DOWNLOADED_VIDEOS_FILE, 'utf-8');
-        return JSON.parse(fileContent);
-    } catch (error) {
-        logger.error(`Error reading downloaded videos: ${error.message}`);
-        return [];
-    }
-}
-
 module.exports = {
     readDownloadedVideos,
     appendDownloadedVideo,
     saveDownloadedVideos,
     readWatchTracker,
     saveWatchTracker,
-    ensureDirectories,
-    readDownloadedVideosSync
+    ensureDirectories
 };

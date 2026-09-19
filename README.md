@@ -24,11 +24,11 @@ Go to [tampermonkey.net](https://www.tampermonkey.net/) and install the extensio
 
 ### Step 3 — Download the app
 
-Go to the [Releases](../../releases) page of this repository and download `YouTube Checker.exe`. Place the file somewhere permanent — for example `C:\Users\YourName\Apps\YouTube Checker\YouTube Checker.exe`. It does not need to be installed; it is a portable executable.
+Go to the [Releases](../../releases) page of this repository and download `YouTube-Checker-<version>.exe` (for example `YouTube-Checker-2.0.1.exe`). Place the file somewhere permanent — for example in `C:\Users\YourName\Apps\YouTube Checker\`. It does not need to be installed; it is a portable executable.
 
 ### Step 4 — Run the app for the first time
 
-Double-click `YouTube Checker.exe`. On the very first launch it will:
+Double-click the downloaded `.exe`. On the very first launch it will:
 
 - Download the required tools (`yt-dlp` and `ffmpeg`) into the same folder as the exe — this takes about a minute depending on your connection.
 - Register itself with Windows so the browser can wake it up automatically when needed.
@@ -112,9 +112,9 @@ This runs three steps in sequence:
 
 1. **Download binaries** — `node scripts/install-binaries.js` downloads `yt-dlp.exe` and `ffmpeg.exe/ffprobe.exe` into `bin/` if they are not already there (skips existing files).
 2. **Clean** — kills any running Electron/YouTube Checker processes and removes the `dist/` folder.
-3. **Package** — `electron-builder` bundles everything into a Windows portable executable at `dist/YouTube Checker.exe`. The three binaries above are included via `extraFiles` and placed next to the exe.
+3. **Package** — `electron-builder` bundles everything into a Windows portable executable at `dist/YouTube-Checker.exe`. The three binaries above are included via `extraFiles` and placed next to the exe.
 
-The resulting `dist/YouTube Checker.exe` is fully self-contained — just move it anywhere and run it.
+The resulting `dist/YouTube-Checker.exe` is fully self-contained — just move it anywhere and run it.
 
 ---
 
@@ -176,17 +176,31 @@ Releases are built and published automatically via [GitHub Actions](.github/work
 
 ### Create a release
 
+`package.json` is the single source of truth for the version — it fills the
+Windows file properties of the exe and is shown in the app header. `npm version`
+bumps it, commits, and creates the matching tag in one step:
+
 ```bash
-git tag v2.1.0
-git push --tags
+npm version patch          # or minor / major / an explicit 2.1.0
+git push && git push --tags
 ```
+
+The workflow refuses to build if the tag and `package.json` disagree.
+
+> The local build output is always `dist/YouTube-Checker.exe` (no version, so the
+> path never goes stale). The workflow renames it to `YouTube-Checker-<version>.exe`
+> before attaching it to the release, so downloaded copies can be told apart.
+> Either way the version is also in the file properties: right-click →
+> **Properties** → **Details**.
 
 The workflow:
 1. Checks out the code on a `windows-latest` runner.
 2. Runs `npm ci` to install dependencies.
-3. Downloads the required binaries (`node scripts/install-binaries.js`).
-4. Builds the portable exe (`electron-builder`).
-5. Creates a GitHub Release with auto-generated release notes and attaches the built `.exe`.
+3. Fails fast if the tag and `package.json` version disagree.
+4. Downloads the required binaries (`node scripts/install-binaries.js`).
+5. Builds the portable exe (`electron-builder`).
+6. Renames it to `YouTube-Checker-<version>.exe`.
+7. Creates a GitHub Release with auto-generated release notes and attaches that `.exe`.
 
 No extra secrets are required — the workflow uses the built-in `GITHUB_TOKEN`.
 
@@ -195,7 +209,7 @@ No extra secrets are required — the workflow uses the built-in `GITHUB_TOKEN`.
 1. Run `npm run build` locally.
 2. Go to **GitHub → Releases → Draft a new release**.
 3. Create a new tag (e.g. `v2.1.0`).
-4. Drag `dist/YouTube Checker.exe` into the assets section.
+4. Drag `dist/YouTube-Checker.exe` into the assets section.
 5. Publish.
 
 ---

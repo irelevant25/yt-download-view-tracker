@@ -73,6 +73,12 @@ async function initializeApp() {
 
     logger.success('Initializing application...');
     try {
+        // Version for the window header. app.getVersion() reads package.json,
+        // which is the single source of truth (it also fills the exe's file
+        // properties). Registered before the window exists so the renderer can
+        // ask for it as soon as it loads.
+        ipcMain.handle('get-app-version', () => app.getVersion());
+
         ipcMain.on('ui-initialized', () => {
             // Initialize logger with main window
             logger.init(mainWindow);

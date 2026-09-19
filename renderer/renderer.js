@@ -7,6 +7,7 @@ const logContainer = document.getElementById('logContainer');
 const clearBtn = document.getElementById('clearBtn');
 const scrollLockBtn = document.getElementById('scrollLockBtn');
 const downloadCount = document.getElementById('downloadCount');
+const appVersion = document.getElementById('appVersion');
 
 // Application State
 let isScrollLocked = false;
@@ -21,6 +22,8 @@ scrollLockBtn.addEventListener('click', toggleScrollLock);
  * Initialize the UI components
  */
 function initializeUI() {
+    showVersion();
+
     // Listen for log messages from the main process
     ipcRenderer.on('log', handleLogMessage);
 
@@ -35,6 +38,21 @@ function initializeUI() {
     );
 
     ipcRenderer.send('ui-initialized');
+}
+
+/**
+ * Display the app version in the header.
+ * Asks the main process rather than requiring package.json directly: a relative
+ * require() in a renderer resolves against the HTML file's directory, not this
+ * script's, which differs between dev and the packaged asar.
+ */
+async function showVersion() {
+    try {
+        appVersion.textContent = `v${await ipcRenderer.invoke('get-app-version')}`;
+    } catch (error) {
+        appVersion.textContent = '';
+        console.error('Could not read app version:', error);
+    }
 }
 
 /**

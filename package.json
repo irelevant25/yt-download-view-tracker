@@ -1,9 +1,8 @@
 {
   "name": "youtube-checker",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "An Electron application for downloading and tracking YouTube videos",
   "main": "src/main.js",
-  "icon": "128.ico",
   "engines": {
     "npm": "10.8.2",
     "node": "22.15.0"
@@ -11,6 +10,7 @@
   "build": {
     "productName": "YouTube Checker",
     "appId": "com.yourdomain.youtubechecker",
+    "artifactName": "YouTube-Checker.${ext}",
     "files": [
       "src/**/*",
       "index.html",

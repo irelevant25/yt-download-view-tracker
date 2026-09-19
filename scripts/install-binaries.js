@@ -22,18 +22,48 @@ const YTDLP_API = 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest';
 const FFMPEG_API = 'https://api.github.com/repos/yt-dlp/FFmpeg-Builds/releases/latest';
 const FFMPEG_ASSET = 'ffmpeg-master-latest-win64-gpl.zip';
 
+const MAX_REDIRECTS = 5;
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function log(msg) {
     console.log(`[install-binaries] ${msg}`);
 }
 
+// Only the REST API needs a token, and only it may ever see one.
+const API_HOST = 'api.github.com';
+
 /**
- * Fetch a URL as parsed JSON, following up to one redirect.
+ * Request headers for a given URL.
+ *
+ * A bearer token is attached only for api.github.com, so CI runs escape the
+ * 60 req/h anonymous rate limit that Actions runners share across their IP pool.
+ * Asset downloads redirect to github.com and then to a pre-signed
+ * objects.githubusercontent.com / S3 URL; those need no auth, and sending one
+ * would both leak the token to a third-party host and make S3 reject the request
+ * ("only one auth mechanism allowed"). Must be re-derived on every redirect hop.
+ *
+ * @param {string} url - The URL this request is going to
+ * @returns {Object} Header map
+ */
+function ghHeaders(url) {
+    const headers = { 'User-Agent': 'youtube-checker-app' };
+
+    let host;
+    try { host = new URL(url).hostname; } catch { return headers; }
+    if (host !== API_HOST) return headers;
+
+    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+}
+
+/**
+ * Fetch a URL as parsed JSON.
  */
 function fetchJson(url) {
     return new Promise((resolve, reject) => {
-        https.get(url, { headers: { 'User-Agent': 'youtube-checker-app' } }, (res) => {
+        https.get(url, { headers: ghHeaders(url) }, (res) => {
             let data = '';
             res.on('data', chunk => (data += chunk));
             res.on('end', () => {
@@ -55,10 +85,15 @@ function fetchJson(url) {
  */
 function downloadFile(url, destPath, onProgress) {
     return new Promise((resolve, reject) => {
-        const tryDownload = (dlUrl) => {
-            https.get(dlUrl, { headers: { 'User-Agent': 'youtube-checker-app' } }, (res) => {
+        const tryDownload = (dlUrl, redirectsLeft = MAX_REDIRECTS) => {
+            https.get(dlUrl, { headers: ghHeaders(dlUrl) }, (res) => {
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                    tryDownload(res.headers.location);
+                    res.resume();
+                    if (redirectsLeft <= 0) {
+                        reject(new Error(`Too many redirects downloading ${url}`));
+                        return;
+                    }
+                    tryDownload(res.headers.location, redirectsLeft - 1);
                     return;
                 }
                 if (res.statusCode !== 200) {

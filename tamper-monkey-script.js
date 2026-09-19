@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Video Tracker
 // @namespace    http://tampermonkey.net/
-// @version      2024-11-28
+// @version      2026-09-19
 // @description  Monitor YouTube video interactions efficiently while complying with Trusted Types.
 // @author       irelevant
 // @match        *://*.youtube.com/*
@@ -19,18 +19,22 @@
     ////////// Trusted Types ///////
     ////////////////////////////////
 
+    // The global is `trustedTypes`, lowercase - the capitalised spelling never
+    // resolves, so the policy was silently never created.
     const isTrustedTypesSupported = () => {
-        return window.TrustedTypes && window.TrustedTypes.createPolicy;
+        return typeof window.trustedTypes !== 'undefined' && !!window.trustedTypes.createPolicy;
     };
 
     let trustedTypesPolicy = null;
 
     if (isTrustedTypesSupported()) {
-        trustedTypesPolicy = window.TrustedTypes.createPolicy('ytTrackerPolicy', {
-            createHTML: (input) => {
-                return input;
-            }
-        });
+        try {
+            trustedTypesPolicy = window.trustedTypes.createPolicy('ytTrackerPolicy', {
+                createHTML: (input) => input
+            });
+        } catch (error) {
+            console.warn('[YT-Tracker] Could not create Trusted Types policy:', error);
+        }
     }
 
     ////////////////////////////////
@@ -40,7 +44,6 @@
     const DB_NAME = "YouTubeWatchTracker";
     const STORE_NAME = "videos";
 
-    // Use exact same pattern as original
     const dbPromise = new Promise((resolve, reject) => {
         console.log('[YT-Tracker] Opening IndexedDB...');
         const request = indexedDB.open(DB_NAME, 1);
@@ -49,7 +52,11 @@
             console.log('[YT-Tracker] IndexedDB upgrade needed');
             const db = target.result;
             if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME, { keyPath: "videoCode" });
+                // Out-of-line keys: every call site passes the video code as a
+                // separate key argument (put(value, key), get(key), cursor.key).
+                // Declaring a keyPath here would make those calls throw DataError
+                // on any browser profile that creates the store fresh.
+                db.createObjectStore(STORE_NAME);
                 console.log('[YT-Tracker] Created object store');
             }
         };
@@ -61,7 +68,7 @@
 
         request.onerror = ({ target }) => {
             console.error('[YT-Tracker] IndexedDB Error:', target.error);
-            reject(`IndexedDB Error: ${target.errorCode}`);
+            reject(`IndexedDB Error: ${target.error}`);
         };
 
         request.onblocked = () => {
@@ -146,7 +153,7 @@
         }
 
         if (options.innerHTML) {
-            if (isTrustedTypesSupported() && trustedTypesPolicy) {
+            if (trustedTypesPolicy) {
                 el.innerHTML = trustedTypesPolicy.createHTML(options.innerHTML);
             } else {
                 el.innerHTML = options.innerHTML;
@@ -159,9 +166,7 @@
             delete options.styles;
         }
 
-        if (options) {
-            Object.entries(options).forEach(([key, value]) => el.setAttribute(key, value));
-        }
+        Object.entries(options).forEach(([key, value]) => el.setAttribute(key, value));
 
         return el;
     };
@@ -214,8 +219,6 @@
     const API_URL = 'http://localhost:5000';
     const APP_NAME = 'com.yourdomain.youtubechecker://';
 
-    let apiAvailable = false;
-
     function customFetch(url, options = {}) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
@@ -223,6 +226,7 @@
                 url: url,
                 headers: options.headers || {},
                 data: options.body,
+                timeout: options.timeout,
                 onload: (response) => {
                     resolve({
                         ok: response.status >= 200 && response.status < 300,
@@ -231,7 +235,8 @@
                         json: () => Promise.resolve(JSON.parse(response.responseText))
                     });
                 },
-                onerror: (error) => reject(error)
+                onerror: (error) => reject(error),
+                ontimeout: () => reject(new Error('Request timed out'))
             });
         });
     }
@@ -246,24 +251,187 @@
         return `${days > 0 ? days + 'd ' : ''}${(hours % 24) > 0 ? (hours % 24) + 'h ' : ''}${(minutes % 60) > 0 ? (minutes % 60) + 'm ' : ''}${(seconds % 60)}s ago`;
     };
 
-    async function isUrlLive(url, tries = 3, interval = 1000) {
-        for (let i = 0; i < tries; i++) {
+    ///////////////////////////////////////
+    ////////// API Health Monitor /////////
+    ///////////////////////////////////////
+
+    // The desktop app can start or die at any moment, in any tab, without this page
+    // doing anything. So availability is polled continuously rather than probed once
+    // at startup: fast while it is down (so a cold boot is picked up within a second
+    // of the app being ready), slow while it is up (just enough to notice a crash).
+
+    const POLL_INTERVAL_DOWN_MS = 1000;
+    const POLL_INTERVAL_UP_MS = 3000;
+    const PROBE_TIMEOUT_MS = 2000;
+    // One dropped probe on a busy app should not flash the modal; two in a row means
+    // the app dying is noticed 3-6s later.
+    const FAILURES_BEFORE_DOWN = 2;
+
+    const ApiMonitor = (() => {
+        let available = null;   // null until the first probe resolves
+        let failureStreak = 0;
+        let timer = null;
+        let ticking = false;
+        let inFlight = null;
+        const changeListeners = new Set();
+        const resultListeners = new Set();
+
+        // Any HTTP answer at all means something is listening on the port. Status
+        // codes are deliberately ignored: a 404 on `/` is still a running API.
+        function probe() {
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: API_URL,
+                    timeout: PROBE_TIMEOUT_MS,
+                    onload: () => resolve(true),
+                    onerror: () => resolve(false),
+                    ontimeout: () => resolve(false)
+                });
+            });
+        }
+
+        function emit(set, value) {
+            set.forEach((fn) => {
+                try { fn(value); } catch (error) { console.error('[YT-Tracker] API listener failed:', error); }
+            });
+        }
+
+        function setAvailable(next) {
+            if (available === next) return;
+            available = next;
+            emit(changeListeners, next);
+        }
+
+        function check() {
+            // Collapse overlapping checks (a visibilitychange landing on a tick).
+            if (inFlight) return inFlight;
+
+            inFlight = probe().then((up) => {
+                if (up) {
+                    failureStreak = 0;
+                    setAvailable(true);
+                } else {
+                    failureStreak++;
+                    if (available !== true || failureStreak >= FAILURES_BEFORE_DOWN) {
+                        setAvailable(false);
+                    }
+                }
+                inFlight = null;
+
+                // Broadcast the settled state after EVERY probe, not just on the
+                // edges. The UI reconciles itself against this, so a missed
+                // transition self-heals on the next poll instead of leaving the
+                // page stuck showing the wrong thing.
+                emit(resultListeners, available === true);
+                return available === true;
+            });
+
+            return inFlight;
+        }
+
+        async function tick() {
+            // Guard against two concurrent loops (a visibilitychange arriving while
+            // a tick is already awaiting its probe); the running tick reschedules.
+            if (ticking) return;
+            ticking = true;
             try {
-                const response = await customFetch(url);
-                return response.ok;
-            } catch {
-                await new Promise((resolve) => setTimeout(resolve, interval));
+                await check();
+            } finally {
+                ticking = false;
+            }
+            clearTimeout(timer);
+            timer = setTimeout(tick, available === true ? POLL_INTERVAL_UP_MS : POLL_INTERVAL_DOWN_MS);
+        }
+
+        // Background tabs get their timers throttled to roughly once a minute, so a
+        // tab left open on another screen can hold a stale state. Re-probe the moment
+        // it comes back to the foreground.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'visible') return;
+            clearTimeout(timer);
+            tick();
+        });
+
+        return {
+            start: () => tick(),
+            isAvailable: () => available === true,
+            checkNow: check,
+            // Edges only - use for side effects that must happen once per transition.
+            onChange: (fn) => { changeListeners.add(fn); return () => changeListeners.delete(fn); },
+            // Every probe - use for UI that should converge on the current state.
+            onResult: (fn) => { resultListeners.add(fn); return () => resultListeners.delete(fn); }
+        };
+    })();
+
+    ////////////////////////////////
+    ////////// API UI //////////////
+    ////////////////////////////////
+
+    // How long "Starting API..." stays patient before it starts calling itself a
+    // failure. The app takes 10-15s from a cold boot and the monitor closes the
+    // modal by itself the instant it answers, so this only bounds the failure case.
+    const STARTUP_GRACE_MS = 60000;
+
+    // The modal and the floating badge are one unit: exactly one of them is on
+    // screen whenever the API is down, and neither when it is up. Both are driven
+    // by sync(), which runs after every probe - so the UI converges on the real
+    // state even if a transition is somehow missed.
+    const ApiUi = (() => {
+        let overlay = null;
+        let message = null;
+        let runBtn = null;
+        let badge = null;
+        let ticker = null;
+
+        // When Run was last pressed. Survives closing the modal, so reopening it
+        // mid-startup still shows the running counter rather than resetting to
+        // "API is not running". Cleared only when the API actually comes up.
+        let startedAt = 0;
+        // Cancel on our own modal. Collapses to the floating badge instead of
+        // nagging; cleared when the API comes up or when the badge is clicked.
+        let dismissed = false;
+
+        function phase() {
+            if (!startedAt) return 'idle';
+            return (Date.now() - startedAt < STARTUP_GRACE_MS) ? 'starting' : 'failed';
+        }
+
+        // Both buttons stay in place in every phase - only the wording changes.
+        // Chrome's external-protocol prompt is easy to dismiss by accident, and the
+        // fix for that is pressing Run again, so Run must never disappear.
+        function render() {
+            if (!overlay) return;
+
+            switch (phase()) {
+                case 'starting': {
+                    const waited = Math.round((Date.now() - startedAt) / 1000);
+                    message.textContent = `Starting API... (${waited}s)`;
+                    runBtn.textContent = 'Run again';
+                    break;
+                }
+                case 'failed':
+                    message.textContent = 'API could not be started';
+                    runBtn.textContent = 'Try again';
+                    break;
+                default:
+                    message.textContent = 'API is not running';
+                    runBtn.textContent = 'Run';
             }
         }
-    };
 
-    ////////////////////////////////
-    ////////// API Modal ///////////
-    ////////////////////////////////
+        function startTicker() {
+            if (ticker) return;
+            ticker = setInterval(render, 1000);
+        }
 
-    function showApiModal() {
-        return new Promise((resolve) => {
-            const overlay = createElement('div', {
+        function stopTicker() {
+            clearInterval(ticker);
+            ticker = null;
+        }
+
+        function buildModal() {
+            overlay = createElement('div', {
                 id: 'yt-tracker-api-modal',
                 styles: {
                     position: 'fixed',
@@ -290,7 +458,7 @@
                 }
             });
 
-            const message = createElement('p', {
+            message = createElement('p', {
                 textContent: 'API is not running',
                 styles: { marginBottom: '20px', fontSize: '16px' }
             });
@@ -308,10 +476,17 @@
                     color: 'white',
                     border: 'none',
                     borderRadius: '5px'
+                },
+                events: {
+                    click: () => {
+                        dismissed = true;
+                        closeModal();
+                        showBadge();
+                    }
                 }
             });
 
-            const runBtn = createElement('button', {
+            runBtn = createElement('button', {
                 textContent: 'Run',
                 styles: {
                     padding: '8px 20px',
@@ -320,32 +495,17 @@
                     color: 'white',
                     border: 'none',
                     borderRadius: '5px'
-                }
-            });
-
-            let isStartingState = false;
-
-            cancelBtn.addEventListener('click', () => {
-                overlay.remove();
-                resolve(false);
-            });
-
-            runBtn.addEventListener('click', async () => {
-                window.location.href = APP_NAME;
-                if (!isStartingState) {
-                    isStartingState = true;
-                    message.textContent = 'Starting API...';
-                    runBtn.textContent = 'Try Again';
-                    runBtn.style.display = 'none';
-                    if (await isUrlLive(API_URL)) {
-                        overlay.remove();
-                        resolve(true);
-                    }
-                    else {
-                        isStartingState = false;
-                        runBtn.style.display = '';
-                        runBtn.textContent = 'Try Again';
-                        message.textContent = 'API could not be started';
+                },
+                events: {
+                    click: () => {
+                        // Hands off to Chrome's external-protocol prompt. Nothing is
+                        // awaited here - the monitor is already polling once a second
+                        // and closes this modal as soon as the app answers. Pressing
+                        // it again just re-fires the prompt and restarts the counter.
+                        startedAt = Date.now();
+                        render();
+                        startTicker();
+                        window.location.href = APP_NAME;
                     }
                 }
             });
@@ -353,9 +513,97 @@
             btnContainer.append(cancelBtn, runBtn);
             modal.append(message, btnContainer);
             overlay.appendChild(modal);
+        }
+
+        function openModal() {
+            if (overlay) {
+                render();
+                return;
+            }
+            buildModal();
             document.body.appendChild(overlay);
-        });
-    }
+            render();
+            startTicker();
+        }
+
+        function closeModal() {
+            stopTicker();
+            overlay?.remove();
+            overlay = null;
+            message = null;
+            runBtn = null;
+        }
+
+        function buildBadge() {
+            badge = createElement('button', {
+                id: 'yt-tracker-api-badge',
+                textContent: '⚠ API offline',
+                styles: {
+                    position: 'fixed',
+                    bottom: '20px',
+                    right: '20px',
+                    // Under the modal overlay (99999) - they are never both visible,
+                    // but this keeps the stacking honest if that ever changes.
+                    zIndex: '99998',
+                    display: 'none',
+                    padding: '10px 16px',
+                    borderRadius: '999px',
+                    border: 'none',
+                    backgroundColor: '#c62828',
+                    color: 'white',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    fontFamily: 'Roboto, Arial, sans-serif',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.4)'
+                },
+                events: {
+                    click: () => {
+                        dismissed = false;
+                        hideBadge();
+                        openModal();
+                    }
+                }
+            });
+            document.body.appendChild(badge);
+        }
+
+        function showBadge() {
+            if (!badge) buildBadge();
+            badge.style.display = 'block';
+        }
+
+        function hideBadge() {
+            if (badge) badge.style.display = 'none';
+        }
+
+        return {
+            // Called after every probe, not just on transitions.
+            sync(up) {
+                if (up) {
+                    dismissed = false;
+                    startedAt = 0;
+                    closeModal();
+                    hideBadge();
+                    return;
+                }
+                if (dismissed) {
+                    closeModal();
+                    showBadge();
+                } else {
+                    hideBadge();
+                    openModal();
+                }
+            }
+        };
+    })();
+
+    ///////////////////////////////////////
+    ////////// API Interactions ///////////
+    ///////////////////////////////////////
+
+    // Download requests made while the app was down, replayed once it is back.
+    const pendingDownloads = new Set();
 
     async function uploadDBToApi() {
         download(true, async (data) => {
@@ -379,6 +627,7 @@
                             await db.put(videoCode, { ...video, download: true });
                             syncedCount++;
                         }
+                        pendingDownloads.delete(videoCode);
                     }
                     if (syncedCount > 0) {
                         console.log(`[YT-Tracker] Synced ${syncedCount} video(s) as downloaded`);
@@ -391,23 +640,30 @@
         });
     }
 
-    async function startApi() {
-        if (await isUrlLive(API_URL, 1)) {
-            apiAvailable = true;
-            return await uploadDBToApi();
-        }
+    async function postDownload(videoCode) {
+        const videoUrl = `https://www.youtube.com/watch?v=${videoCode}`;
 
-        const result = await showApiModal();
-        if (result) {
-            apiAvailable = true;
-            return await uploadDBToApi()
+        try {
+            const response = await customFetch(API_URL + '/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: videoUrl })
+            });
+            const result = await response.json();
+            // Show the API message ("started" or "already in progress").
+            // Do NOT mark as downloaded here — the app will confirm on next startup sync.
+            NotificationSystem.success(result.message, 0);
+            pendingDownloads.delete(videoCode);
+        } catch (error) {
+            // Most likely the app died between the probe and this request; leave it
+            // queued so the next up-transition retries it.
+            pendingDownloads.add(videoCode);
+            NotificationSystem.error('Failed to send download request.', 0);
+            console.error(error);
         }
-
-        return false;
     }
 
     async function sendDownloadRequest(videoCode) {
-        // Check conditions first
         const video = await db.get(videoCode);
         if (!video) {
             console.log('[YT-Tracker] Download skipped: video not in DB');
@@ -423,53 +679,67 @@
             return;
         }
 
-        // Check API availability
-        if (!apiAvailable) {
-            apiAvailable = await isUrlLive(API_URL);
-        }
-
-        if (!apiAvailable) {
-            NotificationSystem.error('API is not running', 0);
+        if (!ApiMonitor.isAvailable()) {
+            // Queue it and let the monitor drive; no blocking retry loop here.
+            pendingDownloads.add(videoCode);
+            console.log('[YT-Tracker] API down, download queued:', videoCode);
             return;
         }
 
-        const videoUrl = `https://www.youtube.com/watch?v=${videoCode}`;
+        await postDownload(videoCode);
+    }
 
-        try {
-            const response = await customFetch(API_URL + '/download', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: videoUrl })
-            });
-            const result = await response.json();
-            // Show the API message ("started" or "already in progress").
-            // Do NOT mark as downloaded here — the app will confirm on next startup sync.
-            NotificationSystem.success(result.message, 0);
-        } catch (error) {
-            NotificationSystem.error('Failed to send download request.', 0);
-            console.error(error);
-        }
-    };
+    function flushPendingDownloads() {
+        if (pendingDownloads.size === 0) return;
+        const queued = Array.from(pendingDownloads);
+        console.log(`[YT-Tracker] Retrying ${queued.length} queued download(s)`);
+        queued.forEach((videoCode) => sendDownloadRequest(videoCode));
+    }
+
+    // Edges: the things that must happen exactly once per transition.
+    ApiMonitor.onChange((up) => {
+        console.log(`[YT-Tracker] API is ${up ? 'up' : 'down'}`);
+        if (!up) return;
+        uploadDBToApi();
+        flushPendingDownloads();
+    });
+
+    // Every probe: the UI reconciles itself, so nothing can get stuck showing the
+    // wrong state if a transition is missed.
+    ApiMonitor.onResult((up) => ApiUi.sync(up));
+
+    ////////////////////////////////
+    ////////// Watch Time //////////
+    ////////////////////////////////
 
     function displayWatchTime(videoCode, timestamp) {
+        let attempts = 0;
         const interval = setInterval(() => {
-            const title = document.querySelector('#title > h1');
-            if (title) {
+            // Stop if the user navigated away, otherwise this interval leaks one
+            // timer per visited video and can stamp the wrong title.
+            const currentCode = new URLSearchParams(window.location.search).get('v');
+            if (currentCode !== videoCode || ++attempts > 60) {
                 clearInterval(interval);
-                const existing = title.querySelector('.yt-tracker-watch-time');
-                if (existing) existing.remove();
-
-                const watchTime = createElement('p', {
-                    textContent: new Date(timestamp * 1000).toLocaleString('sk-SK').replaceAll(". ", "."),
-                    style: "margin-left: auto; color: orange; cursor: default; text-wrap: nowrap",
-                    class: 'yt-tracker-watch-time',
-                    events: {
-                        mouseover: (e) => { e.target.title = formatTimeDifference(new Date(timestamp * 1000).getTime()); }
-                    }
-                });
-                title.style.display = 'flex';
-                title.append(watchTime);
+                return;
             }
+
+            const title = document.querySelector('#title');
+            if (!title) return;
+
+            clearInterval(interval);
+            title.querySelector('.yt-tracker-watch-time')?.remove();
+
+            const watchTime = createElement('p', {
+                textContent: new Date(timestamp * 1000).toLocaleString('sk-SK').replaceAll(". ", "."),
+                style: "margin-left: auto; color: orange; cursor: default; text-wrap: nowrap;font-size: 2rem;font-weight: 700;",
+                class: 'yt-tracker-watch-time',
+                events: {
+                    mouseover: (e) => { e.target.title = formatTimeDifference(new Date(timestamp * 1000).getTime()); }
+                }
+            });
+            title.style.width = '100%';
+            title.style.display = 'flex';
+            title.append(watchTime);
         }, 500);
     };
 
@@ -509,16 +779,22 @@
 
             lastVideo = { code: videoCode, title };
 
-            let videoData = await db.get(videoCode);
+            const stored = await db.get(videoCode);
             const like = likeBtn.getAttribute('aria-pressed') === 'true';
             const dislike = dislikeBtn.getAttribute('aria-pressed') === 'true';
-            if (!videoData || videoData.like !== like || videoData.dislike !== dislike) {
+
+            let videoData = stored;
+            if (!stored || stored.like !== like || stored.dislike !== dislike) {
                 videoData = {
                     title,
-                    datetime: Math.floor(Date.now() / 1000),
+                    // Keep the original watch time and the download flag for records
+                    // that already exist. Rebuilding the record from scratch here used
+                    // to reset download:false on every like toggle, which made the app
+                    // re-download videos it already had.
+                    datetime: stored?.datetime ?? Math.floor(Date.now() / 1000),
                     like,
                     dislike,
-                    download: false
+                    download: stored?.download ?? false
                 };
                 await db.put(videoCode, videoData);
             }
@@ -655,14 +931,10 @@
     ////////// Run Script //////////
     ////////////////////////////////
 
-    const run = async () => {
-        monitorVideoPage();
-        monitorSearchResults();
-        monitorMainPage();
-        await startApi();
-    };
-
-    run();
+    monitorVideoPage();
+    monitorSearchResults();
+    monitorMainPage();
+    ApiMonitor.start();
 
     // Exported functions
 
@@ -683,7 +955,6 @@
                 cursor.continue();
             } else {
                 console.log(`Finished reading store "${STORE_NAME}"`);
-                console.log(data);
                 data.sort((a, b) => a.datetime - b.datetime);
                 if (translateDatetime) {
                     data.forEach((item) => {

@@ -41,11 +41,12 @@ jobs:
 
       # The app downloads yt-dlp and ffmpeg itself on first run, so nothing
       # else has to be fetched here.
+      # --publish never, and no GH_TOKEN here. On a tag build electron-builder
+      # publishes by default, and a GH_TOKEN in the environment is exactly what
+      # makes it pick GitHub: it would upload its own unversioned exe to a draft
+      # release, which the publish step below then adopts — two assets.
       - name: Build portable executable
-        run: npx electron-builder
-        env:
-          # Prevents electron-builder from publishing automatically
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --publish never
 
       # electron-builder deliberately produces a version-free "YouTube-Checker.exe"
       # so the local build output and the README stay stable. The published asset

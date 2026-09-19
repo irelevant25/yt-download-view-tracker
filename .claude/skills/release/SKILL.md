@@ -67,6 +67,28 @@ electron-builder started.
 
 ## Known failure modes
 
+**Two exe files on a release.** electron-builder publishes by default when it
+builds a tag in CI, and picks GitHub as the target whenever `GH_TOKEN` or
+`GITHUB_TOKEN` is in its environment. It uploads its own unversioned exe to a
+*draft*, which the publish step then adopts. The build step therefore runs
+`electron-builder --publish never` with **no token in its env** — keep it that
+way. `clean-release-assets.js` lists releases rather than using
+`GET /releases/tags/{tag}`, because that endpoint never returns drafts.
+
+**Re-running an old tag reproduces old bugs.** A tag builds with the workflow
+file as it existed at that commit. Fixes only apply to tags cut after them. To
+tidy an existing release, keep the good exe and drop the rest:
+
+```bash
+GITHUB_TOKEN=<token> node scripts/clean-release-assets.js v2.1.0 --keep-versioned        # dry run
+GITHUB_TOKEN=<token> node scripts/clean-release-assets.js v2.1.0 --keep-versioned --yes
+```
+
+**A re-pushed tag "did not trigger".** It almost certainly did — a run takes
+3–4 minutes and the release only appears at the end. Check the Actions runs
+before re-tagging again.
+
+
 **Run fails in ~45 s → almost certainly `Download required binaries`.**
 `scripts/install-binaries.js` hits `api.github.com` unauthenticated. Actions
 runners share an IP pool against the 60 req/h anonymous limit, so this fails

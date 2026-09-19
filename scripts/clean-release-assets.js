@@ -1,15 +1,19 @@
 /**
  * Remove every asset attached to a GitHub release.
  *
- * softprops/action-gh-release adds assets and only overwrites ones whose name
- * matches exactly. Rename the artifact between runs and the old file stays put,
- * so a release slowly accumulates one exe per naming scheme it has ever used.
- * Clearing the assets first means a tag always ends up with exactly what the
- * current build produced.
+ * softprops/action-gh-release adds to whatever release already exists for the
+ * tag, draft or not, and only overwrites an asset whose name matches exactly.
+ * Anything already there stays: an exe from a re-run under a different name,
+ * or — the cause of every duplicate this repo's releases ever had — the
+ * unversioned exe electron-builder auto-published to a draft because GH_TOKEN
+ * was set during the build. Clearing first means a tag always ends up with
+ * exactly what the current build produced.
  *
  * Usage:
- *   node scripts/clean-release-assets.js v2.0.2            # dry run, lists only
- *   node scripts/clean-release-assets.js v2.0.2 --yes      # actually deletes
+ *   node scripts/clean-release-assets.js v2.0.2                    # dry run, lists only
+ *   node scripts/clean-release-assets.js v2.0.2 --yes              # delete every asset
+ *   node scripts/clean-release-assets.js v2.0.2 --keep-versioned --yes
+ *       # tidy an existing release: keep YouTube-Checker-2.0.2.exe, delete the rest
  *
  * Requires GITHUB_TOKEN (or GH_TOKEN) with contents:write on the repository.
  * The repository is taken from GITHUB_REPOSITORY, or the origin remote.
@@ -77,6 +81,9 @@ function api(method, path) {
 async function main() {
     const tag = process.argv[2];
     const confirmed = process.argv.includes('--yes') || process.env.CI === 'true';
+    const keepName = process.argv.includes('--keep-versioned')
+        ? `YouTube-Checker-${String(tag).replace(/^v/, '')}.exe`
+        : null;
 
     if (!tag) {
         console.error('Usage: node scripts/clean-release-assets.js <tag> [--yes]');
@@ -87,20 +94,33 @@ async function main() {
     log(`Repository: ${repo}`);
     log(`Tag: ${tag}`);
 
-    const release = await api('GET', `/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`);
+    // Not GET /releases/tags/{tag}: that endpoint never returns drafts, and a
+    // draft is exactly what a stray publisher (electron-builder, by default)
+    // leaves behind. The list endpoint includes drafts when authenticated.
+    const listing = await api('GET', `/repos/${repo}/releases?per_page=100`);
+    if (listing.status !== 200) {
+        throw new Error(`Could not list releases (HTTP ${listing.status}): ${listing.body.slice(0, 200)}`);
+    }
 
-    if (release.status === 404) {
+    const releases = JSON.parse(listing.body).filter(r => r.tag_name === tag);
+
+    if (releases.length === 0) {
         log('No release exists for this tag yet — nothing to clean.');
         return;
     }
-    if (release.status !== 200) {
-        throw new Error(`Could not read release (HTTP ${release.status}): ${release.body.slice(0, 200)}`);
+
+    for (const release of releases) {
+        log(`Release ${release.id} (${release.draft ? 'draft' : 'published'}) with ${release.assets.length} asset(s).`);
     }
 
-    const assets = JSON.parse(release.body).assets || [];
+    const assets = releases
+        .flatMap(r => r.assets || [])
+        .filter(a => a.name !== keepName);
+
+    if (keepName) log(`Keeping ${keepName}.`);
 
     if (assets.length === 0) {
-        log('Release has no assets — nothing to clean.');
+        log('Nothing to delete.');
         return;
     }
 

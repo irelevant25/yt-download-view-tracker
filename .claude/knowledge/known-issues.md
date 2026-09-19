@@ -66,12 +66,17 @@ forwarded to the CDN host an asset download redirects to. `updater.js` still
 needs the redirect cap; it sends no token, so it has nothing to leak.
 Neither verifies a checksum — that is still open for both.
 
-### 5. Insecure renderer
+### 5. ~~Insecure renderer~~ — FIXED
 
-`src/ui/window.js:23-26` uses `nodeIntegration: true` + `contextIsolation: false`,
-and `index.html` has no CSP. Today `renderer.js` only uses `textContent`, so there
-is no live XSS, but the blast radius of any future `innerHTML` is full RCE.
-Prefer a `preload` script + `contextBridge`.
+The window ran with `nodeIntegration: true` and `contextIsolation: false`, so
+any future `innerHTML` in the renderer would have been a path to full Node
+access.
+
+**Fixed**: `contextIsolation: true`, `nodeIntegration: false`, and a
+`src/ui/preload.js` exposing a fixed method list as `window.ytChecker`.
+`index.html` carries a CSP. Verified in the packaged build over the DevTools
+protocol: `require` and `process` are both `undefined` in the page, and every
+panel still works.
 
 ---
 

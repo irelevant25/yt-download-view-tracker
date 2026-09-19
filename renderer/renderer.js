@@ -1,10 +1,14 @@
 /**
  * App - Renderer Process
  *
- * Four panels: the log stream, the download queue, the watch-history library
- * and storage. Everything the window knows comes over IPC from ui/ipc.js.
+ * Runs isolated: no Node, no require. Everything it can reach is the surface
+ * exposed by src/ui/preload.js as window.ytChecker.
+ *
+ * Five panels: the log stream, the download queue, the watch-history library,
+ * storage and settings. Everything it knows comes over IPC from ui/ipc.js.
  */
-const { ipcRenderer } = require('electron');
+// The bridge from src/ui/preload.js. This renderer has no Node access.
+const api = window.ytChecker;
 
 const $ = (id) => document.getElementById(id);
 
@@ -34,28 +38,28 @@ function initializeUI() {
     wireStorage();
     wireSettings();
 
-    ipcRenderer.on('log', handleLogMessage);
-    ipcRenderer.on('update-status', (_event, status) => renderUpdateStatus(status));
-    ipcRenderer.on('download-completed', handleDownloadCompleted);
-    ipcRenderer.on('queue-changed', (_event, status) => renderQueue(status));
-    ipcRenderer.on('download-progress', (_event, progress) => updateProgress(progress));
+    api.onLog(handleLogMessage);
+    api.onUpdateStatus(renderUpdateStatus);
+    api.onDownloadCompleted(handleDownloadCompleted);
+    api.onQueueChanged(renderQueue);
+    api.onDownloadProgress(updateProgress);
 
     addLogMessage(new Date().toLocaleString(), 'App started. Logs will appear here.', 'green');
 
     refreshQueue();
-    ipcRenderer.invoke('get-update-status').then(renderUpdateStatus);
-    ipcRenderer.send('ui-initialized');
+    api.updates.status().then(renderUpdateStatus);
+    api.ready();
 }
 
 /**
- * Display the app version in the header.
- * Asked of the main process rather than required from package.json: a relative
- * require() in a renderer resolves against the HTML file's directory, not this
- * script's, which differs between dev and the packaged asar.
+ * Display the app version in the header, from app.getVersion() in the main
+ * process. This renderer cannot read package.json itself, and an earlier
+ * attempt to require() it silently failed anyway: a relative require in a
+ * renderer resolved against the HTML file's directory, not this script's.
  */
 async function showVersion() {
     try {
-        appVersion.textContent = `v${await ipcRenderer.invoke('get-app-version')}`;
+        appVersion.textContent = `v${await api.getAppVersion()}`;
     } catch (error) {
         appVersion.textContent = '';
         console.error('Could not read app version:', error);
@@ -98,7 +102,7 @@ function wireLogControls() {
     scrollLockBtn.addEventListener('click', toggleScrollLock);
 }
 
-function handleLogMessage(event, datetime, message, type) {
+function handleLogMessage(datetime, message, type) {
     addLogMessage(datetime, message, type);
 
     if (message.startsWith('Download completed:')) {
@@ -136,7 +140,7 @@ function addLogMessage(datetime, message, type) {
     if (!isScrollLocked) scrollToBottom();
 }
 
-function handleDownloadCompleted(event, url) {
+function handleDownloadCompleted(url) {
     downloadedVideos.add(url);
     updateDownloadCount();
 }
@@ -165,13 +169,13 @@ function scrollToBottom() {
 
 function wireQueue() {
     $('retryFailedBtn').addEventListener('click', async () => {
-        const count = await ipcRenderer.invoke('retry-failed');
+        const count = await api.queue.retryFailed();
         if (count === 0) addLogMessage(new Date().toLocaleString(), 'No failed downloads to retry.', 'blue');
     });
 }
 
 async function refreshQueue() {
-    renderQueue(await ipcRenderer.invoke('get-queue'));
+    renderQueue(await api.queue.get());
 }
 
 /**
@@ -229,13 +233,13 @@ function renderQueueItem(item) {
 
     if (item.state === 'failed') {
         const retry = el('button', { class: 'btn btn--small', text: 'Retry' });
-        retry.addEventListener('click', () => ipcRenderer.invoke('requeue-video', item.videoId));
+        retry.addEventListener('click', () => api.queue.requeue(item.videoId));
         head.append(retry);
     }
 
     if (item.state !== 'active') {
         const remove = el('button', { class: 'btn btn--small', text: 'Remove' });
-        remove.addEventListener('click', () => ipcRenderer.invoke('remove-queued', item.videoId));
+        remove.addEventListener('click', () => api.queue.remove(item.videoId));
         head.append(remove);
     }
 
@@ -304,15 +308,15 @@ function wireLibrary() {
     });
 
     $('refreshLibraryBtn').addEventListener('click', async () => {
-        await ipcRenderer.invoke('refresh-library');
+        await api.library.refresh();
         refreshLibrary();
     });
 }
 
 async function refreshLibrary() {
     const [result, summary] = await Promise.all([
-        ipcRenderer.invoke('query-library', libraryState),
-        ipcRenderer.invoke('get-library-summary')
+        api.library.query(libraryState),
+        api.library.summary()
     ]);
 
     renderStats($('librarySummary'), [
@@ -354,7 +358,7 @@ function renderLibraryRow(record) {
         button.addEventListener('click', async () => {
             button.disabled = true;
             button.textContent = 'Queued';
-            await ipcRenderer.invoke('requeue-video', record.videoId);
+            await api.queue.requeue(record.videoId);
         });
         action.append(button);
     }
@@ -366,11 +370,11 @@ function renderLibraryRow(record) {
 // ── Storage ─────────────────────────────────────────────────────────────
 
 function wireStorage() {
-    $('openVideosBtn').addEventListener('click', () => ipcRenderer.invoke('open-videos-folder'));
-    $('openLogsBtn').addEventListener('click', () => ipcRenderer.invoke('open-logs-folder'));
+    $('openVideosBtn').addEventListener('click', () => api.storage.openVideosFolder());
+    $('openLogsBtn').addEventListener('click', () => api.storage.openLogsFolder());
 
     $('inspectBtn').addEventListener('click', async () => {
-        const report = await ipcRenderer.invoke('inspect-library');
+        const report = await api.library.inspect();
         renderRepairReport(report);
         $('repairBtn').disabled = report.legacyNames.length === 0 && report.untracked.length === 0;
     });
@@ -379,7 +383,7 @@ function wireStorage() {
         const button = $('repairBtn');
         button.disabled = true;
         button.textContent = 'Repairing…';
-        const result = await ipcRenderer.invoke('repair-library', { rename: true });
+        const result = await api.library.repair({ rename: true });
         button.textContent = 'Repair';
         renderRepairResult(result);
         refreshStorage();
@@ -387,7 +391,7 @@ function wireStorage() {
 }
 
 async function refreshStorage() {
-    const s = await ipcRenderer.invoke('get-storage-stats');
+    const s = await api.storage.stats();
 
     $('storagePath').textContent = s.videosDirectory;
 
@@ -441,20 +445,20 @@ function wireSettings() {
     });
 
     $('chooseCookieFileBtn').addEventListener('click', async () => {
-        const chosen = await ipcRenderer.invoke('choose-cookies-file');
+        const chosen = await api.settings.chooseCookiesFile();
         if (chosen) $('cookieFile').value = chosen;
     });
 
     $('saveSettingsBtn').addEventListener('click', saveSettings);
 
-    $('checkUpdateBtn').addEventListener('click', () => ipcRenderer.invoke('check-for-update'));
-    $('downloadUpdateBtn').addEventListener('click', () => ipcRenderer.invoke('download-update'));
-    $('installUpdateBtn').addEventListener('click', () => ipcRenderer.invoke('install-update'));
-    $('releasePageBtn').addEventListener('click', () => ipcRenderer.invoke('open-release-page'));
+    $('checkUpdateBtn').addEventListener('click', () => api.updates.check());
+    $('downloadUpdateBtn').addEventListener('click', () => api.updates.download());
+    $('installUpdateBtn').addEventListener('click', () => api.updates.install());
+    $('releasePageBtn').addEventListener('click', () => api.updates.openReleasePage());
 }
 
 async function loadSettings() {
-    const { settings, browsers } = await ipcRenderer.invoke('get-settings');
+    const { settings, browsers } = await api.settings.get();
 
     const select = $('cookieBrowser');
     if (select.options.length === 0) {
@@ -494,7 +498,7 @@ async function saveSettings() {
         updates: { autoCheck: $('autoCheckUpdates').checked }
     };
 
-    const { warnings } = await ipcRenderer.invoke('save-settings', next);
+    const { warnings } = await api.settings.save(next);
     const message = $('settingsMessage');
     message.textContent = warnings.length ? warnings.join(' ') : 'Saved. New downloads will use these settings.';
     message.classList.toggle('error', warnings.length > 0);

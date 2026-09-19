@@ -106,6 +106,7 @@ Note step 5 opens the API **before** step 7 guarantees yt-dlp exists.
 | `services/appUpdater.js` | Checking GitHub for a newer app, sha256-verified download, launching it |
 | `services/handover.js` | The new version's side: wait for the old pid, delete the old exe |
 | `ui/ipc.js` | Every channel the window can call, in one auditable place |
+| `ui/preload.js` | The only bridge the isolated renderer has to the main process |
 
 ## Self-update
 
@@ -135,6 +136,13 @@ Four panels (`index.html` + `renderer/renderer.js`), switched by the tab bar:
 - **Storage** — claimed space, free space, a drive meter, and library repair
 - **Settings** — cookie source (none / browser / cookies.txt) and app updates
 
-The renderer builds nodes with a small `el()` helper and `textContent` only.
-`index.html` carries a CSP; the renderer still has Node integration, so that
-matters.
+The renderer runs with `contextIsolation: true` and `nodeIntegration: false`.
+It has no `require` and no `process`; `src/ui/preload.js` exposes a fixed set
+of methods as `window.ytChecker`, each mapping to one channel in `ui/ipc.js`.
+
+It is exposed as `ytChecker`, not `api`: `contextBridge` defines the global as
+non-configurable, which collides with a top-level `const api` in a classic
+script and stops the whole file parsing.
+
+Nodes are built with a small `el()` helper and `textContent` only, and
+`index.html` carries a CSP.

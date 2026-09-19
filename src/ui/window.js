@@ -21,8 +21,11 @@ function createMainWindow() {
         height: 700,
         show: false, // Start hidden
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
+            // The renderer gets no Node access. Everything it may call is
+            // enumerated in preload.js and registered in ui/ipc.js.
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js')
         },
         icon: CONFIG.ICON_ICO_PATH256,
         title: CONFIG.APP_NAME

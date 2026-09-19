@@ -40,9 +40,11 @@ This file covers only what the README does not: invariants, landmines and conven
 4. **Do not change the userscript's IndexedDB schema or the `/upload-db` response
    shape independently.** They are one contract. See architecture.md → Sync contract.
 
-5. **The renderer runs with `nodeIntegration: true`, `contextIsolation: false`.**
-   Anything reaching `logger.log()` reaches a Node-enabled renderer. Keep using
-   `textContent` (never `innerHTML`) in `renderer/renderer.js`.
+5. **The renderer is isolated and has no Node.** It reaches the main process
+   only through `window.ytChecker`, defined in `src/ui/preload.js`, and every
+   method there maps to one channel in `src/ui/ipc.js`. Adding a capability
+   means adding it in both places — there is deliberately no generic `invoke`.
+   Keep using `textContent` (never `innerHTML`) in the renderer regardless.
 
 6. **`package.json` `version` is the single source of truth.** The header reads
    it over IPC and the workflow refuses a tag that disagrees. Never hardcode a

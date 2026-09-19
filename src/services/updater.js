@@ -10,6 +10,7 @@ const https = require('https');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 const CONFIG = require('../config');
 const logger = require('../utils/logger');
@@ -43,9 +44,20 @@ function fetchJson(url) {
 
 /**
  * Download a URL to destPath, following HTTP redirects.
- * Writes to destPath.tmp first and atomically renames on completion.
+ * Writes to destPath.tmp first and only renames it into place once it has been
+ * checked against the sha256 GitHub publishes for the asset, so a corrupt or
+ * tampered download can never replace a working binary.
+ *
+ * @param {string} url
+ * @param {string} destPath
+ * @param {string} [expectedDigest] - "sha256:<hex>" from the release asset
  */
-function downloadFile(url, destPath) {
+function downloadFile(url, destPath, expectedDigest) {
+    const expected = /^sha256:([0-9a-f]{64})$/i.exec(expectedDigest || '');
+    if (!expected) {
+        logger.info(`No published checksum for ${path.basename(destPath)} — downloading unverified.`);
+    }
+
     return new Promise((resolve, reject) => {
         const tryDownload = (downloadUrl, redirectsLeft = MAX_REDIRECTS) => {
             https.get(downloadUrl, { headers: { 'User-Agent': 'youtube-checker-app' } }, (res) => {
@@ -66,10 +78,18 @@ function downloadFile(url, destPath) {
 
                 const tmpPath = destPath + '.tmp';
                 const file = fs.createWriteStream(tmpPath);
+                const hash = crypto.createHash('sha256');
+                res.on('data', chunk => hash.update(chunk));
                 res.pipe(file);
 
                 file.on('finish', () => {
                     file.close(() => {
+                        const actual = hash.digest('hex');
+                        if (expected && actual.toLowerCase() !== expected[1].toLowerCase()) {
+                            fs.unlink(tmpPath, () => {});
+                            reject(new Error(`Checksum mismatch for ${path.basename(destPath)} — download discarded`));
+                            return;
+                        }
                         try {
                             fs.renameSync(tmpPath, destPath);
                             resolve();
@@ -148,7 +168,7 @@ async function downloadYtDlp() {
     const asset = release.assets?.find(a => a.name === 'yt-dlp.exe');
     if (!asset) throw new Error('yt-dlp.exe not found in release assets');
 
-    await downloadFile(asset.browser_download_url, CONFIG.YTDLP_PATH);
+    await downloadFile(asset.browser_download_url, CONFIG.YTDLP_PATH, asset.digest);
 
     logger.success(`yt-dlp.exe v${release.tag_name} installed.`);
     logger.activityLog('INSTALLED', `yt-dlp.exe v${release.tag_name}`);
@@ -163,7 +183,7 @@ async function downloadFfmpeg() {
     if (!asset) throw new Error(`"${FFMPEG_ASSET}" not found in yt-dlp/FFmpeg-Builds releases`);
 
     const zipPath = path.join(os.tmpdir(), 'ffmpeg-builds.zip');
-    await downloadFile(asset.browser_download_url, zipPath);
+    await downloadFile(asset.browser_download_url, zipPath, asset.digest);
 
     logger.info('Extracting ffmpeg.exe, ffprobe.exe, ffplay.exe...');
     await extractExesFromZip(zipPath, BIN_DIR);
@@ -243,7 +263,7 @@ async function checkAndUpdate() {
         }
 
         logger.info(`Downloading yt-dlp.exe v${latestVersion}...`);
-        await downloadFile(asset.browser_download_url, CONFIG.YTDLP_PATH);
+        await downloadFile(asset.browser_download_url, CONFIG.YTDLP_PATH, asset.digest);
 
         const newVersion = await getCurrentVersion();
         logger.success(`yt-dlp updated to v${newVersion}`);

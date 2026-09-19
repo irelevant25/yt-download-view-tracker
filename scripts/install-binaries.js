@@ -14,6 +14,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 const BIN_DIR = path.join(__dirname, '..', 'bin');
@@ -83,7 +84,10 @@ function fetchJson(url) {
  * Download a URL to destPath, following HTTP redirects.
  * Writes to destPath.tmp first and atomically renames on completion.
  */
-function downloadFile(url, destPath, onProgress) {
+function downloadFile(url, destPath, onProgress, expectedDigest) {
+    const expected = /^sha256:([0-9a-f]{64})$/i.exec(expectedDigest || '');
+    if (!expected) log(`No published checksum for ${path.basename(destPath)} — downloading unverified.`);
+
     return new Promise((resolve, reject) => {
         const tryDownload = (dlUrl, redirectsLeft = MAX_REDIRECTS) => {
             https.get(dlUrl, { headers: ghHeaders(dlUrl) }, (res) => {
@@ -107,8 +111,10 @@ function downloadFile(url, destPath, onProgress) {
 
                 const tmp = destPath + '.tmp';
                 const file = fs.createWriteStream(tmp);
+                const hash = crypto.createHash('sha256');
 
                 res.on('data', chunk => {
+                    hash.update(chunk);
                     received += chunk.length;
                     if (total && onProgress) {
                         const pct = Math.floor((received / total) * 100);
@@ -123,6 +129,13 @@ function downloadFile(url, destPath, onProgress) {
 
                 file.on('finish', () => {
                     file.close(() => {
+                        const actual = hash.digest('hex');
+                        if (expected && actual.toLowerCase() !== expected[1].toLowerCase()) {
+                            fs.unlink(tmp, () => {});
+                            reject(new Error(`Checksum mismatch for ${path.basename(destPath)} — download discarded`));
+                            return;
+                        }
+                        if (expected) log(`  sha256 verified for ${path.basename(destPath)}`);
                         try {
                             fs.renameSync(tmp, destPath);
                             resolve();
@@ -196,7 +209,7 @@ async function installYtDlp() {
     if (!asset) throw new Error('yt-dlp.exe not found in release assets');
 
     log(`Downloading yt-dlp.exe v${release.tag_name}...`);
-    await downloadFile(asset.browser_download_url, dest, pct => log(`  yt-dlp: ${pct}%`));
+    await downloadFile(asset.browser_download_url, dest, pct => log(`  yt-dlp: ${pct}%`), asset.digest);
     log(`yt-dlp.exe v${release.tag_name} installed.`);
 }
 
@@ -214,7 +227,7 @@ async function installFfmpeg() {
 
     const zipPath = path.join(os.tmpdir(), 'ffmpeg-builds.zip');
     log(`Downloading ffmpeg ${release.tag_name} (~170 MB)...`);
-    await downloadFile(asset.browser_download_url, zipPath, pct => log(`  ffmpeg: ${pct}%`));
+    await downloadFile(asset.browser_download_url, zipPath, pct => log(`  ffmpeg: ${pct}%`), asset.digest);
 
     log('Extracting ffmpeg.exe, ffprobe.exe, ffplay.exe...');
     await extractExesFromZip(zipPath, BIN_DIR);

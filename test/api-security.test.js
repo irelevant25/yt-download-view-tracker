@@ -18,6 +18,17 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG = require('../src/config');
+
+// Keep the test away from real data: a valid URL gets queued, and the queue
+// persists, so without this it would start a real download into videos/.
+const SANDBOX = fs.mkdtempSync(path.join(require('os').tmpdir(), 'yt-checker-api-test-'));
+CONFIG.LOGS_DIRECTORY = path.join(SANDBOX, 'logs');
+CONFIG.ACTIVITY_LOG_FILE = path.join(SANDBOX, 'logs', 'activity.log');
+CONFIG.VIDEOS_DIRECTORY = path.join(SANDBOX, 'videos');
+CONFIG.QUEUE_FILE = path.join(SANDBOX, 'download_queue.json');
+CONFIG.DOWNLOADED_VIDEOS_FILE = path.join(SANDBOX, 'downloaded_videos.json');
+CONFIG.WATCH_TRACKER_FILE = path.join(SANDBOX, 'YouTubeWatchTracker.json');
+CONFIG.YTDLP_PATH = path.join(SANDBOX, 'no-such-yt-dlp.exe');
 fs.mkdirSync(CONFIG.LOGS_DIRECTORY, { recursive: true });
 
 const server = require('../src/api/server');
@@ -91,5 +102,6 @@ const CANARY = path.join(require('os').tmpdir(), 'yt-checker-rce-canary.txt');
     console.log('\n' + (failed ? `${failed} FAILURES` : `all ${results.length} checks pass`));
 
     server.stopServer();
+    fs.rmSync(SANDBOX, { recursive: true, force: true });
     process.exit(failed ? 1 : 0);
 })();

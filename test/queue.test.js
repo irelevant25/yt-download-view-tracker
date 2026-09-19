@@ -29,6 +29,9 @@ CONFIG.RETRY_BASE_DELAY_MS = 120;
 CONFIG.RETRY_FACTOR = 1;
 CONFIG.QUEUE_TICK_MS = 40;
 CONFIG.QUEUE_FILE = path.join(os.tmpdir(), `yt-checker-queue-test-${process.pid}.json`);
+// Queue events go to activity.log; keep them out of the real one.
+CONFIG.LOGS_DIRECTORY = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-checker-queue-logs-'));
+CONFIG.ACTIVITY_LOG_FILE = path.join(CONFIG.LOGS_DIRECTORY, 'activity.log');
 
 // Stub the downloader before the queue requires it.
 const downloader = require('../src/services/downloader');
@@ -134,6 +137,7 @@ async function waitUntil(predicate, timeoutMs = 5000) {
     queue.stop();
 
     try { fs.unlinkSync(CONFIG.QUEUE_FILE); } catch {}
+    fs.rmSync(CONFIG.LOGS_DIRECTORY, { recursive: true, force: true });
     downloader.initiateDownload = realInitiate;
 
     console.log('');

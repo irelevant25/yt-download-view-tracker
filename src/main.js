@@ -13,7 +13,7 @@ const notifications = require('./utils/notifications');
 const apiServer = require('./api/server');
 const protocol = require('./services/protocol');
 const storage = require('./services/storage');
-const metadata = require('./services/metadata');
+const library = require('./services/library');
 const updater = require('./services/updater');
 const windowManager = require('./ui/window');
 const trayManager = require('./ui/tray');
@@ -79,16 +79,18 @@ async function initializeApp() {
         // ask for it as soon as it loads.
         ipcMain.handle('get-app-version', () => app.getVersion());
 
-        ipcMain.on('ui-initialized', () => {
-            // Initialize logger with main window
-            logger.init(mainWindow);
-        });
-
         // Ensure required directories exist (must run first so logs/ is available)
         await storage.ensureDirectories();
 
         // Create main window
         const mainWindow = windowManager.createMainWindow();
+
+        // Registered after mainWindow exists. This used to close over the
+        // const before its declaration and only worked because the renderer's
+        // message always arrived later.
+        ipcMain.on('ui-initialized', () => {
+            logger.init(mainWindow);
+        });
 
         logger.info('Application starting...');
 
@@ -106,17 +108,17 @@ async function initializeApp() {
             return;
         }
 
-        // Load downloaded videos from metadata
-        const videosFromMetadata = await metadata.extractVideoUrlsFromMetadata();
+        // Reconcile videos/ against downloaded_videos.json
+        const downloadedVideos = await library.loadDownloadedVideos();
 
         // Initialize routes with downloaded videos
-        apiServer.initializeDownloadedVideos(videosFromMetadata);
+        apiServer.initializeDownloadedVideos(downloadedVideos);
 
         // Start daily yt-dlp update checker
         updater.startUpdateScheduler();
 
         // Initialize UI downloaded videos list
-        logger.updateDownloadVideos(videosFromMetadata);
+        logger.updateDownloadVideos(downloadedVideos);
 
         // Show notification
         notifications.showNotification(
@@ -139,6 +141,11 @@ app.on('ready', initializeApp);
 // Prevent default quit behavior
 app.on('window-all-closed', (event) => {
     // Do nothing, to keep app running in tray
+});
+
+// Release the API port on the way out instead of holding it during a slow quit
+app.on('before-quit', () => {
+    apiServer.stopServer();
 });
 
 // Activate event (macOS)

@@ -91,6 +91,11 @@ function activityLog(status, label) {
 }
 
 function updateDownloadVideos(videos) {
+    // The window reference only exists once the renderer has sent
+    // 'ui-initialized'. Without this guard an early call threw and aborted the
+    // rest of app startup through main.js's single try/catch.
+    if (!mainWindow || !mainWindow.webContents) return;
+
     videos.forEach(videoUrl => {
         mainWindow.webContents.send('download-completed', videoUrl);
     });

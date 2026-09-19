@@ -1,6 +1,6 @@
 {
   "name": "youtube-checker",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "An Electron application for downloading and tracking YouTube videos",
   "main": "src/main.js",
   "engines": {

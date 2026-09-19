@@ -128,6 +128,18 @@ delete the dead functions and the file.
 **Fixed** at `tamper-monkey-script.js:25` — correct lowercase global, and policy
 creation is wrapped in try/catch.
 
+### 11b. `/upload-db` drops changes when the record count is unchanged
+
+`src/api/routes.js:72` treats "same length" as "same data" and returns early
+without saving. A session where you only toggle likes or dislikes, and watch
+nothing new, never reaches `saveWatchTracker`. The browser's IndexedDB keeps the
+change, so nothing is lost outright, but `YouTubeWatchTracker.json` — the only
+backup of an 11,000-record history — silently falls behind.
+
+Fix: compare content, not length. A cheap hash of the serialised array, or a
+`lastModified` counter the userscript increments on every write, is enough.
+Keep the existing shrink guard.
+
 ### 12. Startup race on `logger.updateDownloadVideos`
 
 `src/utils/logger.js:93-97` dereferences `mainWindow` without a null check, but

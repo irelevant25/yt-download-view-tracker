@@ -35,6 +35,15 @@ const CONFIG = {
     // from ordinary output. Must not appear in normal yt-dlp text.
     PROGRESS_PREFIX: '@@PROGRESS@@',
 
+    // Download queue
+    MAX_CONCURRENT_DOWNLOADS: 2,
+    MAX_DOWNLOAD_ATTEMPTS: 4,
+    // Backoff between attempts: 30s, 2m, 8m — doubling by 4 each time.
+    RETRY_BASE_DELAY_MS: 30 * 1000,
+    RETRY_FACTOR: 4,
+    // How often the queue re-checks whether a retry has come due.
+    QUEUE_TICK_MS: 5 * 1000,
+
     // Only these origins may call the local API. The userscript uses
     // GM_xmlhttpRequest, which is not subject to CORS, so this does not affect it.
     ALLOWED_ORIGINS: [
@@ -51,6 +60,7 @@ const CONFIG = {
 
     // Files
     DOWNLOADED_VIDEOS_FILE: path.join(BASE_DIR, 'downloaded_videos.json'),
+    QUEUE_FILE: path.join(BASE_DIR, 'download_queue.json'),
     WATCH_TRACKER_FILE: path.join(BASE_DIR, 'YouTubeWatchTracker.json'),
     ACTIVITY_LOG_FILE: path.join(LOGS_DIR, 'activity.log'),
     FFMPEG_PATH: path.join(BIN_DIR, 'ffmpeg.exe'),

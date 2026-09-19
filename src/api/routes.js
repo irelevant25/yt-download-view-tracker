@@ -7,6 +7,7 @@ const router = express.Router();
 const logger = require('../utils/logger');
 const notifications = require('../utils/notifications');
 const downloader = require('../services/downloader');
+const queue = require('../services/queue');
 const storage = require('../services/storage');
 
 // Authoritative list of URLs the app has actually downloaded (string[])
@@ -68,22 +69,36 @@ router.post('/download', (req, res) => {
         return res.status(400).json({ error: 'Not a valid YouTube watch URL' });
     }
 
-    if (downloadedVideos.includes(videoUrl) || downloader.isDownloading(videoUrl)) {
-        logger.info(`Video already downloaded or downloading: ${videoUrl}`);
+    if (downloadedVideos.includes(videoUrl)) {
+        logger.info(`Video already downloaded: ${videoUrl}`);
         logger.activityLog('DUPLICATE', videoUrl);
-        return res.status(200).json({ message: 'Video already downloaded or in progress.' });
+        return res.status(200).json({ message: 'Video already downloaded.' });
+    }
+
+    if (queue.has(videoUrl)) {
+        logger.info(`Video already queued: ${videoUrl}`);
+        logger.activityLog('DUPLICATE', videoUrl);
+        return res.status(200).json({ message: 'Video already queued.' });
     }
 
     logger.info(`Received request to download: ${videoUrl}`);
 
-    downloader.initiateDownload(videoUrl, async (url, success) => {
-        if (success) {
-            downloadedVideos.push(url);
-            await storage.appendDownloadedVideo(url);
-        }
-    });
+    const { queued, reason } = queue.enqueue(videoUrl);
+    if (!queued) {
+        return res.status(200).json({ message: 'Video already queued.' });
+    }
 
-    return res.status(200).json({ message: 'Video download successfully started.' });
+    const { pending, running } = queue.status();
+    return res.status(200).json({
+        message: reason === 'retrying'
+            ? 'Retrying a previously failed download.'
+            : `Queued for download (${running} running, ${pending} waiting).`
+    });
+});
+
+// API endpoint: Queue status
+router.get('/queue', (req, res) => {
+    res.status(200).json(queue.status());
 });
 
 // API endpoint: Upload TamperMonkey database snapshot
@@ -152,7 +167,21 @@ function extractVideoCodes(urls) {
         .filter(Boolean);
 }
 
+/**
+ * Record a completed download so later requests for it are treated as
+ * duplicates. Called by the queue once a download actually succeeds.
+ * @param {string} url
+ * @returns {Promise<void>}
+ */
+async function recordDownloaded(url) {
+    if (!downloadedVideos.includes(url)) {
+        downloadedVideos.push(url);
+    }
+    await storage.appendDownloadedVideo(url);
+}
+
 module.exports = {
     router,
-    initializeDownloadedVideos
+    initializeDownloadedVideos,
+    recordDownloaded
 };

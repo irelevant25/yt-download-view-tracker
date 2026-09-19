@@ -14,6 +14,7 @@ const apiServer = require('./api/server');
 const protocol = require('./services/protocol');
 const storage = require('./services/storage');
 const library = require('./services/library');
+const queue = require('./services/queue');
 const updater = require('./services/updater');
 const windowManager = require('./ui/window');
 const trayManager = require('./ui/tray');
@@ -114,6 +115,9 @@ async function initializeApp() {
         // Initialize routes with downloaded videos
         apiServer.initializeDownloadedVideos(downloadedVideos);
 
+        // Resume anything left in the download queue from a previous run
+        await queue.start({ onDownloaded: apiServer.recordDownloaded });
+
         // Start daily yt-dlp update checker
         updater.startUpdateScheduler();
 
@@ -145,6 +149,7 @@ app.on('window-all-closed', (event) => {
 
 // Release the API port on the way out instead of holding it during a slow quit
 app.on('before-quit', () => {
+    queue.stop();
     apiServer.stopServer();
 });
 

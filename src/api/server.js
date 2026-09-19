@@ -81,5 +81,6 @@ function stopServer() {
 module.exports = {
     startServer,
     stopServer,
-    initializeDownloadedVideos: routes.initializeDownloadedVideos
+    initializeDownloadedVideos: routes.initializeDownloadedVideos,
+    recordDownloaded: routes.recordDownloaded
 };

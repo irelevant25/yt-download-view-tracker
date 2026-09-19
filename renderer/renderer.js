@@ -1,48 +1,52 @@
 /**
  * App - Renderer Process
- * Handles the UI for log display and user interaction
+ *
+ * Four panels: the log stream, the download queue, the watch-history library
+ * and storage. Everything the window knows comes over IPC from ui/ipc.js.
  */
 const { ipcRenderer } = require('electron');
-const logContainer = document.getElementById('logContainer');
-const clearBtn = document.getElementById('clearBtn');
-const scrollLockBtn = document.getElementById('scrollLockBtn');
-const downloadCount = document.getElementById('downloadCount');
-const appVersion = document.getElementById('appVersion');
+
+const $ = (id) => document.getElementById(id);
+
+const logContainer = $('logContainer');
+const clearBtn = $('clearBtn');
+const scrollLockBtn = $('scrollLockBtn');
+const downloadCount = $('downloadCount');
+const appVersion = $('appVersion');
 
 // Application State
 let isScrollLocked = false;
-let downloadedVideos = new Set();
+const downloadedVideos = new Set();
+let libraryState = { search: '', filter: 'all', sort: 'watchedAt', direction: 'desc', limit: 200 };
+let librarySearchTimer = null;
 
-// Register event listeners
 document.addEventListener('DOMContentLoaded', initializeUI);
-clearBtn.addEventListener('click', clearLogs);
-scrollLockBtn.addEventListener('click', toggleScrollLock);
 
 /**
  * Initialize the UI components
  */
 function initializeUI() {
     showVersion();
+    wireTabs();
+    wireLogControls();
+    wireQueue();
+    wireLibrary();
+    wireStorage();
 
-    // Listen for log messages from the main process
     ipcRenderer.on('log', handleLogMessage);
-
-    // Listen for download status updates
     ipcRenderer.on('download-completed', handleDownloadCompleted);
+    ipcRenderer.on('queue-changed', (_event, status) => renderQueue(status));
+    ipcRenderer.on('download-progress', (_event, progress) => updateProgress(progress));
 
-    // Add initial welcome message
-    addLogMessage(
-        new Date().toLocaleString(),
-        'App started. Logs will appear here.',
-        'green'
-    );
+    addLogMessage(new Date().toLocaleString(), 'App started. Logs will appear here.', 'green');
 
+    refreshQueue();
     ipcRenderer.send('ui-initialized');
 }
 
 /**
  * Display the app version in the header.
- * Asks the main process rather than requiring package.json directly: a relative
+ * Asked of the main process rather than required from package.json: a relative
  * require() in a renderer resolves against the HTML file's directory, not this
  * script's, which differs between dev and the packaged asar.
  */
@@ -55,102 +59,413 @@ async function showVersion() {
     }
 }
 
+// ── Tabs ────────────────────────────────────────────────────────────────
+
+function wireTabs() {
+    $('tabs').addEventListener('click', (event) => {
+        const tab = event.target.closest('.tab');
+        if (!tab) return;
+        selectPanel(tab.dataset.panel);
+    });
+}
+
 /**
- * Handle incoming log messages from the main process
- * @param {Event} event - IPC event
- * @param {string} datetime - Timestamp
- * @param {string} message - Log message
- * @param {string} type - Message type/color
+ * Show one panel and load whatever it needs on first view.
+ * @param {string} name
  */
+function selectPanel(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('is-active', t.dataset.panel === name));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('is-active', p.id === `panel-${name}`));
+
+    // The log controls only mean anything on the log panel.
+    const onLogs = name === 'logs';
+    clearBtn.hidden = !onLogs;
+    scrollLockBtn.hidden = !onLogs;
+
+    if (name === 'library') refreshLibrary();
+    if (name === 'storage') refreshStorage();
+    if (name === 'queue') refreshQueue();
+}
+
+// ── Logs ────────────────────────────────────────────────────────────────
+
+function wireLogControls() {
+    clearBtn.addEventListener('click', clearLogs);
+    scrollLockBtn.addEventListener('click', toggleScrollLock);
+}
+
 function handleLogMessage(event, datetime, message, type) {
     addLogMessage(datetime, message, type);
 
-    // Count downloads (basic parsing of log messages)
     if (message.startsWith('Download completed:')) {
-        const url = message.replace('Download completed:', '').trim();
-        downloadedVideos.add(url);
+        downloadedVideos.add(message.replace('Download completed:', '').trim());
         updateDownloadCount();
     }
 }
 
 /**
  * Add a new log message to the UI
- * @param {string} datetime - Timestamp
- * @param {string} message - Log message
- * @param {string} type - Message type/color
+ * @param {string} datetime
+ * @param {string} message
+ * @param {string} type
  */
 function addLogMessage(datetime, message, type) {
-    // Create message wrapper
-    const messageWrapper = document.createElement('div');
-    messageWrapper.classList.add('message-wrapper');
+    const wrapper = document.createElement('div');
+    wrapper.classList.add('message-wrapper');
 
-    // Create timestamp element
-    const timestampElement = document.createElement('div');
-    timestampElement.classList.add('timestamp');
-    timestampElement.textContent = datetime;
+    const timestamp = document.createElement('div');
+    timestamp.classList.add('timestamp');
+    timestamp.textContent = datetime;
 
-    // Create message element
-    const messageElement = document.createElement('div');
-    messageElement.textContent = message;
-    if (type) {
-        messageElement.classList.add(type);
+    const body = document.createElement('div');
+    body.textContent = message;
+    if (type) body.classList.add(type);
+
+    wrapper.append(timestamp, body);
+    logContainer.appendChild(wrapper);
+
+    // Keep the log bounded; this window can be open for days.
+    while (logContainer.childElementCount > 2000) {
+        logContainer.removeChild(logContainer.firstElementChild);
     }
 
-    // Assemble and add to container
-    messageWrapper.appendChild(timestampElement);
-    messageWrapper.appendChild(messageElement);
-    logContainer.appendChild(messageWrapper);
-
-    // Auto-scroll to bottom if not locked
-    if (!isScrollLocked) {
-        scrollToBottom();
-    }
+    if (!isScrollLocked) scrollToBottom();
 }
 
-/**
- * Handle completed download notification
- * @param {Event} event - IPC event
- * @param {string} url - Video URL
- */
 function handleDownloadCompleted(event, url) {
     downloadedVideos.add(url);
     updateDownloadCount();
 }
 
-/**
- * Update the download counter display
- */
 function updateDownloadCount() {
     downloadCount.textContent = downloadedVideos.size;
 }
 
-/**
- * Clear all log messages
- */
 function clearLogs() {
-    logContainer.innerHTML = '';
-    addLogMessage(
-        new Date().toLocaleString(),
-        'Logs cleared',
-        'blue'
-    );
+    logContainer.replaceChildren();
+    addLogMessage(new Date().toLocaleString(), 'Logs cleared', 'blue');
 }
 
-/**
- * Toggle scroll lock state
- */
 function toggleScrollLock() {
     isScrollLocked = !isScrollLocked;
     scrollLockBtn.classList.toggle('locked', isScrollLocked);
+    scrollLockBtn.textContent = isScrollLocked ? '🔓' : '🔒';
+    if (!isScrollLocked) scrollToBottom();
+}
 
-    if (!isScrollLocked) {
-        scrollToBottom();
-    }
+function scrollToBottom() {
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+// ── Queue ───────────────────────────────────────────────────────────────
+
+function wireQueue() {
+    $('retryFailedBtn').addEventListener('click', async () => {
+        const count = await ipcRenderer.invoke('retry-failed');
+        if (count === 0) addLogMessage(new Date().toLocaleString(), 'No failed downloads to retry.', 'blue');
+    });
+}
+
+async function refreshQueue() {
+    renderQueue(await ipcRenderer.invoke('get-queue'));
 }
 
 /**
- * Scroll to the bottom of the log container
+ * Render the queue panel, the tab badge and the footer summary.
+ * @param {Object} status
  */
-function scrollToBottom() {
-    logContainer.scrollTop = logContainer.scrollHeight;
+function renderQueue(status) {
+    if (!status) return;
+
+    const list = $('queueList');
+    const active = status.running + status.pending;
+
+    const badge = $('queueBadge');
+    badge.textContent = String(active);
+    badge.hidden = active === 0;
+
+    $('queueSummary').textContent = status.items.length === 0
+        ? 'Queue is empty.'
+        : `${status.running} downloading (limit ${status.limit}), ${status.pending} waiting, ${status.failed} failed`;
+
+    $('footerQueue').textContent = active > 0 ? `${active} in queue` : '';
+    $('retryFailedBtn').disabled = status.failed === 0;
+
+    if (status.items.length === 0) {
+        list.replaceChildren(el('p', { class: 'empty', text: 'Nothing queued. Like a video on YouTube and it will appear here.' }));
+        return;
+    }
+
+    const order = { active: 0, pending: 1, failed: 2 };
+    const items = [...status.items].sort((a, b) => (order[a.state] - order[b.state]) || (a.addedAt - b.addedAt));
+
+    list.replaceChildren(...items.map(renderQueueItem));
+}
+
+/**
+ * One queue row, with a progress bar while it is running.
+ * @param {Object} item
+ * @returns {HTMLElement}
+ */
+function renderQueueItem(item) {
+    const row = el('div', { class: `queue-item queue-item--${item.state}` });
+    row.dataset.videoId = item.videoId;
+
+    const head = el('div', { class: 'queue-head' });
+    head.append(
+        el('span', { class: 'queue-state', text: item.state }),
+        el('span', { class: 'queue-id', text: item.videoId })
+    );
+
+    if (item.attempts > 1) {
+        head.append(el('span', { class: 'muted', text: `attempt ${item.attempts}` }));
+    }
+
+    head.append(el('span', { class: 'spacer' }));
+
+    if (item.state === 'failed') {
+        const retry = el('button', { class: 'btn btn--small', text: 'Retry' });
+        retry.addEventListener('click', () => ipcRenderer.invoke('requeue-video', item.videoId));
+        head.append(retry);
+    }
+
+    if (item.state !== 'active') {
+        const remove = el('button', { class: 'btn btn--small', text: 'Remove' });
+        remove.addEventListener('click', () => ipcRenderer.invoke('remove-queued', item.videoId));
+        head.append(remove);
+    }
+
+    row.append(head);
+
+    if (item.state === 'active') {
+        const percent = item.progress ? item.progress.percent : 0;
+        const bar = el('div', { class: 'progress' });
+        const fill = el('div', { class: 'progress-fill' });
+        fill.style.width = `${percent}%`;
+        bar.append(fill);
+
+        const detail = el('div', { class: 'queue-detail muted' });
+        detail.textContent = formatProgress(item.progress);
+
+        row.append(bar, detail);
+    } else if (item.lastError) {
+        row.append(el('div', { class: 'queue-detail error', text: item.lastError }));
+    }
+
+    return row;
+}
+
+/**
+ * Update just the affected row, rather than re-rendering the whole queue on
+ * every progress tick.
+ * @param {Object} progress
+ */
+function updateProgress(progress) {
+    const row = document.querySelector(`.queue-item[data-video-id="${CSS.escape(progress.videoId)}"]`);
+    if (!row) return;
+
+    const fill = row.querySelector('.progress-fill');
+    if (fill) fill.style.width = `${progress.percent}%`;
+
+    const detail = row.querySelector('.queue-detail');
+    if (detail) detail.textContent = formatProgress(progress);
+}
+
+function formatProgress(progress) {
+    if (!progress) return 'starting…';
+    const parts = [`${progress.percent.toFixed(1)}%`];
+    if (progress.speed) parts.push(progress.speed);
+    if (progress.eta) parts.push(`ETA ${progress.eta}`);
+    return parts.join('  ·  ');
+}
+
+// ── Library ─────────────────────────────────────────────────────────────
+
+function wireLibrary() {
+    $('librarySearch').addEventListener('input', (event) => {
+        libraryState.search = event.target.value;
+        clearTimeout(librarySearchTimer);
+        librarySearchTimer = setTimeout(refreshLibrary, 180);
+    });
+
+    $('libraryFilter').addEventListener('change', (event) => {
+        libraryState.filter = event.target.value;
+        refreshLibrary();
+    });
+
+    $('librarySort').addEventListener('change', (event) => {
+        const [sort, direction] = event.target.value.split(':');
+        libraryState = { ...libraryState, sort, direction };
+        refreshLibrary();
+    });
+
+    $('refreshLibraryBtn').addEventListener('click', async () => {
+        await ipcRenderer.invoke('refresh-library');
+        refreshLibrary();
+    });
+}
+
+async function refreshLibrary() {
+    const [result, summary] = await Promise.all([
+        ipcRenderer.invoke('query-library', libraryState),
+        ipcRenderer.invoke('get-library-summary')
+    ]);
+
+    renderStats($('librarySummary'), [
+        ['Tracked', summary.total.toLocaleString()],
+        ['Liked', summary.liked.toLocaleString()],
+        ['Downloaded', summary.onDisk.toLocaleString()],
+        ['Liked, not downloaded', summary.likedMissing.toLocaleString()]
+    ]);
+
+    const body = $('libraryRows');
+    body.replaceChildren(...result.rows.map(renderLibraryRow));
+
+    const shown = result.rows.length;
+    $('libraryMore').textContent = shown < result.matched
+        ? `Showing ${shown.toLocaleString()} of ${result.matched.toLocaleString()} matches — narrow the search to see more.`
+        : `${result.matched.toLocaleString()} match${result.matched === 1 ? '' : 'es'}.`;
+}
+
+/**
+ * @param {Object} record
+ * @returns {HTMLElement}
+ */
+function renderLibraryRow(record) {
+    const tr = el('tr');
+
+    const marks = [];
+    if (record.like) marks.push('👍');
+    if (record.dislike) marks.push('👎');
+    if (record.onDisk) marks.push('💾');
+    tr.append(el('td', { class: 'col-state', text: marks.join(' ') }));
+
+    tr.append(el('td', { class: 'col-title', text: record.title, title: record.title }));
+    tr.append(el('td', { class: 'col-date', text: record.watchedAt ? new Date(record.watchedAt).toLocaleDateString() : '—' }));
+    tr.append(el('td', { class: 'col-id mono', text: record.videoId || '—' }));
+
+    const action = el('td', { class: 'col-action' });
+    if (record.videoId && !record.onDisk) {
+        const button = el('button', { class: 'btn btn--small', text: 'Download' });
+        button.addEventListener('click', async () => {
+            button.disabled = true;
+            button.textContent = 'Queued';
+            await ipcRenderer.invoke('requeue-video', record.videoId);
+        });
+        action.append(button);
+    }
+    tr.append(action);
+
+    return tr;
+}
+
+// ── Storage ─────────────────────────────────────────────────────────────
+
+function wireStorage() {
+    $('openVideosBtn').addEventListener('click', () => ipcRenderer.invoke('open-videos-folder'));
+    $('openLogsBtn').addEventListener('click', () => ipcRenderer.invoke('open-logs-folder'));
+
+    $('inspectBtn').addEventListener('click', async () => {
+        const report = await ipcRenderer.invoke('inspect-library');
+        renderRepairReport(report);
+        $('repairBtn').disabled = report.legacyNames.length === 0 && report.untracked.length === 0;
+    });
+
+    $('repairBtn').addEventListener('click', async () => {
+        const button = $('repairBtn');
+        button.disabled = true;
+        button.textContent = 'Repairing…';
+        const result = await ipcRenderer.invoke('repair-library', { rename: true });
+        button.textContent = 'Repair';
+        renderRepairResult(result);
+        refreshStorage();
+    });
+}
+
+async function refreshStorage() {
+    const s = await ipcRenderer.invoke('get-storage-stats');
+
+    $('storagePath').textContent = s.videosDirectory;
+
+    renderStats($('storageStats'), [
+        ['Videos', `${s.videoCount.toLocaleString()} files`],
+        ['Claimed', formatBytes(s.videosBytes)],
+        ['Average size', s.averageVideoBytes ? formatBytes(s.averageVideoBytes) : '—'],
+        ['Logs', formatBytes(s.logsBytes)],
+        ['Free on drive', formatBytes(s.freeBytes)],
+        ['Room for roughly', s.estimatedRoomForVideos === null ? '—' : `${s.estimatedRoomForVideos.toLocaleString()} more`]
+    ]);
+
+    const usedPct = s.totalBytes ? (s.usedBytes / s.totalBytes) * 100 : 0;
+    const videosPct = s.totalBytes ? (s.videosBytes / s.totalBytes) * 100 : 0;
+
+    $('driveFill').style.width = `${usedPct}%`;
+    $('videosFill').style.width = `${videosPct}%`;
+    $('driveLabel').textContent = `${formatBytes(s.usedBytes)} of ${formatBytes(s.totalBytes)} used`;
+
+    // A library this size warrants a nudge before downloads start failing.
+    const lowSpace = s.totalBytes > 0 && s.freeBytes < Math.max(s.averageVideoBytes * 3, 2 * 1024 ** 3);
+    $('storageStats').classList.toggle('is-warning', lowSpace);
+}
+
+function renderRepairReport(report) {
+    const target = $('repairReport');
+    const lines = [
+        `${report.fileCount} file(s), ${formatBytes(report.totalBytes)}, ${report.identified} identified.`
+    ];
+
+    if (report.legacyNames.length) lines.push(`${report.legacyNames.length} file(s) have no video id in the filename and can be renamed.`);
+    if (report.unidentified.length) lines.push(`${report.unidentified.length} file(s) cannot be identified at all: ${report.unidentified.slice(0, 5).join(', ')}`);
+    if (report.missingFiles.length) lines.push(`${report.missingFiles.length} record(s) point at files that are gone.`);
+    if (report.untracked.length) lines.push(`${report.untracked.length} file(s) on disk are not in the download record.`);
+    if (lines.length === 1) lines.push('Nothing to repair.');
+
+    target.replaceChildren(...lines.map(text => el('p', { text })));
+}
+
+function renderRepairResult(result) {
+    const lines = [`Renamed ${result.renamed.length} file(s). ${result.recordCount} record(s) tracked.`];
+    if (result.failed.length) lines.push(`${result.failed.length} could not be renamed — see the log.`);
+    $('repairReport').replaceChildren(...lines.map(text => el('p', { text })));
+}
+
+// ── Shared helpers ──────────────────────────────────────────────────────
+
+/**
+ * Small element builder. textContent only — never innerHTML, since this
+ * renderer has Node integration.
+ * @param {string} tag
+ * @param {Object} [options]
+ * @returns {HTMLElement}
+ */
+function el(tag, options = {}) {
+    const node = document.createElement(tag);
+    if (options.class) node.className = options.class;
+    if (options.text !== undefined) node.textContent = options.text;
+    if (options.title) node.title = options.title;
+    return node;
+}
+
+/**
+ * @param {HTMLElement} target
+ * @param {Array<[string, string]>} pairs
+ */
+function renderStats(target, pairs) {
+    target.replaceChildren(...pairs.map(([label, value]) => {
+        const box = el('div', { class: 'stat' });
+        box.append(el('span', { class: 'stat-value', text: value }), el('span', { class: 'stat-label', text: label }));
+        return box;
+    }));
+}
+
+/**
+ * @param {number} bytes
+ * @returns {string}
+ */
+function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / Math.pow(1024, index);
+    return `${value.toFixed(value >= 100 || index === 0 ? 0 : 1)} ${units[index]}`;
 }

@@ -15,9 +15,14 @@ const protocol = require('./services/protocol');
 const storage = require('./services/storage');
 const library = require('./services/library');
 const queue = require('./services/queue');
+const ipc = require('./ui/ipc');
 const updater = require('./services/updater');
 const windowManager = require('./ui/window');
 const trayManager = require('./ui/tray');
+
+// Downloaded URLs, shared with the IPC layer by reference so the library
+// panel always sees the current list.
+let downloadedVideosRef = [];
 
 /**
  * Set app user model ID - MUST be called before app ready
@@ -74,12 +79,6 @@ async function initializeApp() {
 
     logger.success('Initializing application...');
     try {
-        // Version for the window header. app.getVersion() reads package.json,
-        // which is the single source of truth (it also fills the exe's file
-        // properties). Registered before the window exists so the renderer can
-        // ask for it as soon as it loads.
-        ipcMain.handle('get-app-version', () => app.getVersion());
-
         // Ensure required directories exist (must run first so logs/ is available)
         await storage.ensureDirectories();
 
@@ -91,6 +90,13 @@ async function initializeApp() {
         // message always arrived later.
         ipcMain.on('ui-initialized', () => {
             logger.init(mainWindow);
+        });
+
+        // Everything the window can ask for lives in ui/ipc.js. Registered
+        // before the renderer loads so its first requests cannot race us.
+        ipc.register({
+            getWindow: windowManager.getMainWindow,
+            getDownloadedVideos: () => downloadedVideosRef
         });
 
         logger.info('Application starting...');
@@ -111,12 +117,22 @@ async function initializeApp() {
 
         // Reconcile videos/ against downloaded_videos.json
         const downloadedVideos = await library.loadDownloadedVideos();
+        downloadedVideosRef = downloadedVideos;
 
         // Initialize routes with downloaded videos
         apiServer.initializeDownloadedVideos(downloadedVideos);
 
         // Resume anything left in the download queue from a previous run
-        await queue.start({ onDownloaded: apiServer.recordDownloaded });
+        await queue.start({
+            onDownloaded: async (url) => {
+                await apiServer.recordDownloaded(url);
+                if (!downloadedVideosRef.includes(url)) downloadedVideosRef.push(url);
+                await ipc.refreshRecords();
+            }
+        });
+
+        // Parse the watch history once so the library panel opens instantly
+        await ipc.refreshRecords();
 
         // Start daily yt-dlp update checker
         updater.startUpdateScheduler();

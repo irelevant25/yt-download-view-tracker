@@ -3,8 +3,10 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Checker - Logs</title>
+    <title>YouTube Checker</title>
     <link rel="stylesheet" href="renderer/styles.css">
 </head>
 
@@ -15,20 +17,122 @@
                 <span class="logo-text">YouTube Checker</span>
                 <span id="appVersion" class="logo-version"></span>
             </div>
+
+            <nav class="tabs" id="tabs">
+                <button class="tab is-active" data-panel="logs">Logs</button>
+                <button class="tab" data-panel="queue">Queue <span class="badge" id="queueBadge" hidden>0</span></button>
+                <button class="tab" data-panel="library">Library</button>
+                <button class="tab" data-panel="storage">Storage</button>
+            </nav>
+
             <div class="header-controls">
-                <button id="clearBtn" class="clear-btn" title="Clear log display">Clear</button>
-                <button id="scrollLockBtn" class="scroll-lock-btn" title="Toggle auto-scrolling">🔒</button>
+                <button id="clearBtn" class="icon-btn" title="Clear log display">Clear</button>
+                <button id="scrollLockBtn" class="icon-btn" title="Toggle auto-scrolling">🔒</button>
             </div>
         </header>
 
-        <main id="logContainer" class="log-container">
-            <!-- Logs will be inserted here by the renderer -->
+        <!-- ── Logs ─────────────────────────────────────────────────── -->
+        <main id="panel-logs" class="panel is-active">
+            <div id="logContainer" class="log-container"></div>
+        </main>
+
+        <!-- ── Queue ────────────────────────────────────────────────── -->
+        <main id="panel-queue" class="panel">
+            <div class="panel-bar">
+                <span id="queueSummary" class="muted">Queue is empty.</span>
+                <span class="spacer"></span>
+                <button id="retryFailedBtn" class="btn">Retry failed</button>
+            </div>
+            <div id="queueList" class="scroll-area">
+                <p class="empty">Nothing queued. Like a video on YouTube and it will appear here.</p>
+            </div>
+        </main>
+
+        <!-- ── Library ──────────────────────────────────────────────── -->
+        <main id="panel-library" class="panel">
+            <div class="panel-bar">
+                <input id="librarySearch" class="input" type="search" placeholder="Search title or video id…"
+                    autocomplete="off">
+                <select id="libraryFilter" class="input select">
+                    <option value="all">All</option>
+                    <option value="liked">Liked</option>
+                    <option value="downloaded">Downloaded</option>
+                    <option value="missing">Liked, not downloaded</option>
+                </select>
+                <select id="librarySort" class="input select">
+                    <option value="watchedAt:desc">Newest first</option>
+                    <option value="watchedAt:asc">Oldest first</option>
+                    <option value="title:asc">Title A–Z</option>
+                    <option value="title:desc">Title Z–A</option>
+                </select>
+                <span class="spacer"></span>
+                <button id="refreshLibraryBtn" class="btn">Refresh</button>
+            </div>
+
+            <div id="librarySummary" class="stat-row"></div>
+
+            <div class="scroll-area">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th class="col-state"></th>
+                            <th>Title</th>
+                            <th class="col-date">Watched</th>
+                            <th class="col-id">Video id</th>
+                            <th class="col-action"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="libraryRows"></tbody>
+                </table>
+                <p id="libraryMore" class="muted more"></p>
+            </div>
+        </main>
+
+        <!-- ── Storage ──────────────────────────────────────────────── -->
+        <main id="panel-storage" class="panel">
+            <div class="panel-bar">
+                <span id="storagePath" class="muted"></span>
+                <span class="spacer"></span>
+                <button id="openVideosBtn" class="btn">Open videos folder</button>
+                <button id="openLogsBtn" class="btn">Open logs folder</button>
+            </div>
+
+            <div class="scroll-area pad">
+                <div id="storageStats" class="stat-row"></div>
+
+                <div class="meter-block">
+                    <div class="meter-label">
+                        <span>Drive usage</span>
+                        <span id="driveLabel" class="muted"></span>
+                    </div>
+                    <div class="meter">
+                        <div class="meter-fill" id="driveFill"></div>
+                        <div class="meter-fill meter-fill--accent" id="videosFill"></div>
+                    </div>
+                    <p class="muted meter-note">
+                        The lighter bar is everything on the drive; the highlighted part is this library.
+                    </p>
+                </div>
+
+                <section class="repair">
+                    <h2>Library repair</h2>
+                    <p class="muted">
+                        Reconciles the files in <code>videos/</code> against the download record, and renames older
+                        files so the video id is part of the filename.
+                    </p>
+                    <div class="repair-actions">
+                        <button id="inspectBtn" class="btn">Check for problems</button>
+                        <button id="repairBtn" class="btn btn--primary" disabled>Repair</button>
+                    </div>
+                    <div id="repairReport" class="report"></div>
+                </section>
+            </div>
         </main>
 
         <footer class="app-footer">
-            <div class="stats">
-                <span id="downloadCount">0</span> videos downloaded
-            </div>
+            <span class="stats"><span id="downloadCount">0</span> videos downloaded</span>
+            <span class="spacer"></span>
+            <span id="footerQueue" class="muted"></span>
         </footer>
     </div>
 

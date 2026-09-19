@@ -23,8 +23,13 @@ Browser (YouTube tab)                Electron main process
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/` | — | `{status:'ok'}` — used as a liveness probe by the userscript |
-| POST | `/download` | `{url}` | `{message}` — fire-and-forget; download runs async |
+| POST | `/download` | `{url}` | `{message}` — validated, then enqueued |
+| GET | `/queue` | — | queue contents with live progress per item |
 | POST | `/upload-db` | `{data: Video[]}` | `{message, downloadedVideoCodes: string[]}` |
+
+`/download` rejects anything that is not an `https` YouTube `/watch` URL with a
+valid 11-character id, and rebuilds the URL from the parsed parts. The server
+binds to `127.0.0.1` and allowlists origins.
 
 ## Sync contract (userscript ⇄ app)
 
@@ -45,9 +50,11 @@ This is the part that is easy to break. Both sides must agree:
    app's in-memory `downloadedVideos` list. The userscript flips those records to
    `download: true` locally.
 
-4. `downloadedVideos` is populated at startup **from the MP4 metadata scan**
-   (`services/metadata.js` reads the `comment` tag embedded by ffmpeg), *not*
-   from `downloaded_videos.json`. Deleting a video file makes the app forget it.
+4. `downloadedVideos` comes from `services/library.js`, which merges the
+   `videos/` scan with `downloaded_videos.json` and persists the union. Ids are
+   read from the filename (`Title [videoId].mp4`); files written before that
+   template are identified from their embedded `comment` tag instead, and
+   `library.repair()` can rename them.
 
 ## Record shape
 
@@ -84,3 +91,29 @@ under `BASE_DIR`, i.e. next to the exe in production.
 8. `logger.updateDownloadVideos()`
 
 Note step 5 opens the API **before** step 7 guarantees yt-dlp exists.
+
+## Services
+
+| Module | Owns |
+|---|---|
+| `services/downloader.js` | One yt-dlp process. spawn + argv, never a shell. Emits `progress`. |
+| `services/queue.js` | Which downloads run, retries, and the on-disk queue file |
+| `services/library.js` | What is actually downloaded; scan, inspect, repair |
+| `services/tracker.js` | Reading and querying the ~14k-record watch history |
+| `services/stats.js` | Directory sizes and free space on the videos drive |
+| `services/updater.js` | Fetching and updating yt-dlp/ffmpeg |
+| `ui/ipc.js` | Every channel the window can call, in one auditable place |
+
+## Window
+
+Four panels (`index.html` + `renderer/renderer.js`), switched by the tab bar:
+
+- **Logs** — the original log stream, now capped at 2000 rows
+- **Queue** — one row per item with a live progress bar, retry and remove
+- **Library** — the watch history, searchable and filterable, paged at 200 rows
+  because putting 14,000 rows in the DOM is not viable
+- **Storage** — claimed space, free space, a drive meter, and library repair
+
+The renderer builds nodes with a small `el()` helper and `textContent` only.
+`index.html` carries a CSP; the renderer still has Node integration, so that
+matters.

@@ -79,7 +79,7 @@ two arguments. Same for `--ffmpeg-location`. The `--exec` value at line 29 also
 wraps the ffmpeg path *inside* the outer quotes instead of quoting it separately.
 Fixing #1 with `execFile` fixes this too.
 
-### 7. Fresh IndexedDB installs cannot write anything
+### 7. ~~Fresh IndexedDB installs cannot write anything~~ — FIXED
 
 `tamper-monkey-script.js:52` creates the store with `keyPath: "videoCode"`, but
 every write passes an explicit out-of-line key
@@ -87,14 +87,20 @@ every write passes an explicit out-of-line key
 `DataError` on a keyPath store. Existing users are unaffected — their store was
 created *without* a keyPath by an older version and still works (confirmed: no
 record in `YouTubeWatchTracker.json` has a `videoCode` field). **New installs are
-broken.** Fix: `db.createObjectStore(STORE_NAME)` with no options.
+broken.**
 
-### 8. Toggling like/dislike wipes the first-watch date and the download flag
+**Fixed** in `tamper-monkey-script.js:59` — the store is now created with no
+keyPath, matching the out-of-line keys every call site passes.
+
+### 8. ~~Toggling like/dislike wipes the first-watch date and the download flag~~ — FIXED
 
 `tamper-monkey-script.js:516-521` replaces the whole record when `like` or
 `dislike` changed, resetting `datetime` to now and `download` to `false`.
 Un-liking then re-liking an already-downloaded video loses its original watch
-date and triggers a re-download. Fix: spread the existing record.
+date and triggers a re-download.
+
+**Fixed** at `tamper-monkey-script.js:794-797` — `datetime` and `download` are
+carried over from the stored record.
 
 ### 9. `download()` → `upload()` round-trip corrupts the database
 
@@ -112,12 +118,15 @@ verbatim. After a backup/restore cycle every `datetime` is a string, so
 it and de-syncs the userscript. Either merge the file into the startup list or
 delete the dead functions and the file.
 
-### 11. Trusted Types policy never activates
+### 11. ~~Trusted Types policy never activates~~ — FIXED
 
 `tamper-monkey-script.js:23` checks `window.TrustedTypes`; the actual global is
 `window.trustedTypes` (lowercase). The policy is never created, so the branch at
 `:149` always falls through to raw `innerHTML`. Harmless today (no caller passes
-`innerHTML`), but the script's own `@description` claims otherwise.
+`innerHTML`), but the script's own `@description` claimed otherwise.
+
+**Fixed** at `tamper-monkey-script.js:25` — correct lowercase global, and policy
+creation is wrapped in try/catch.
 
 ### 12. Startup race on `logger.updateDownloadVideos`
 

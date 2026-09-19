@@ -25,6 +25,25 @@ const CONFIG = {
     PORT: 5000,
     MERGE_OUTPUT_FORMAT: 'mp4',
 
+    // Download behaviour
+    DOWNLOAD_FORMAT: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
+    SUBTITLE_LANGUAGES: 'en',
+    // The video id in the filename is what makes the library self-describing:
+    // the app knows what it has from the directory listing alone.
+    OUTPUT_TEMPLATE: '%(title)s [%(id)s].%(ext)s',
+    // Marker yt-dlp prefixes progress lines with, so they can be told apart
+    // from ordinary output. Must not appear in normal yt-dlp text.
+    PROGRESS_PREFIX: '@@PROGRESS@@',
+
+    // Only these origins may call the local API. The userscript uses
+    // GM_xmlhttpRequest, which is not subject to CORS, so this does not affect it.
+    ALLOWED_ORIGINS: [
+        'https://www.youtube.com',
+        'https://youtube.com',
+        'https://m.youtube.com',
+        'https://music.youtube.com'
+    ],
+
     // Directories
     VIDEOS_DIRECTORY: path.join(BASE_DIR, 'videos'),
     LOGS_DIRECTORY: LOGS_DIR,

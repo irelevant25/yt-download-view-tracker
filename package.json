@@ -59,7 +59,7 @@
     "build": "node scripts/install-binaries.js && node clean.js && electron-builder",
     "build:legacy": "node scripts/install-binaries.js && electron-builder",
     "clean": "rimraf dist",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test/api-security.test.js"
   },
   "keywords": [
     "youtube",

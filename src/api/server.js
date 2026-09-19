@@ -20,20 +20,28 @@ function startServer() {
     return new Promise((resolve) => {
         const app = express();
 
-        // Comprehensive CORS and Private Network Access handling
+        // CORS: allowlist only. This previously reflected whatever Origin the
+        // caller sent, with credentials enabled, which let any page the user
+        // visited drive the API. The userscript talks to us through
+        // GM_xmlhttpRequest, which ignores CORS entirely, so it is unaffected.
         app.use((req, res, next) => {
-            // Set CORS headers
-            res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-            res.setHeader('Access-Control-Allow-Credentials', 'true');
+            const origin = req.headers.origin;
 
-            // Critical: Add Private Network Access header
+            if (origin) {
+                if (!CONFIG.ALLOWED_ORIGINS.includes(origin)) {
+                    logger.error(`Blocked cross-origin request from: ${origin}`);
+                    return res.status(403).json({ error: 'Origin not allowed' });
+                }
+                res.setHeader('Access-Control-Allow-Origin', origin);
+                res.setHeader('Vary', 'Origin');
+            }
+
+            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
             res.setHeader('Access-Control-Allow-Private-Network', 'true');
 
-            // Handle preflight
             if (req.method === 'OPTIONS') {
-                return res.status(200).end();
+                return res.status(204).end();
             }
 
             next();
@@ -46,9 +54,10 @@ function startServer() {
         // Register routes
         app.use('/', routes.router);
 
-        // Start server
-        server = app.listen(CONFIG.PORT, () => {
-            logger.success(`API server running on http://localhost:${CONFIG.PORT}`);
+        // Bind to loopback only — this API has no business being reachable
+        // from the local network.
+        server = app.listen(CONFIG.PORT, '127.0.0.1', () => {
+            logger.success(`API server running on http://127.0.0.1:${CONFIG.PORT}`);
             resolve(true);
         });
 

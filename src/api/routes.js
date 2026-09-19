@@ -26,12 +26,46 @@ router.get('/', (req, res) => {
     res.status(200).json({ status: 'ok', message: 'API is running' });
 });
 
+/**
+ * Accept only real YouTube watch URLs.
+ *
+ * Everything reaching this endpoint is untrusted: it becomes a yt-dlp argument
+ * and part of a log filename. Rebuilding the URL from its parsed parts, rather
+ * than passing the caller's string through, means nothing unexpected survives.
+ *
+ * @param {unknown} value
+ * @returns {string|null} A normalised watch URL, or null if it is not one
+ */
+function normaliseWatchUrl(value) {
+    if (typeof value !== 'string' || value.length > 2048) return null;
+
+    let parsed;
+    try {
+        parsed = new URL(value);
+    } catch {
+        return null;
+    }
+
+    if (parsed.protocol !== 'https:') return null;
+
+    const host = parsed.hostname.toLowerCase();
+    const allowedHosts = ['www.youtube.com', 'youtube.com', 'm.youtube.com', 'music.youtube.com'];
+    if (!allowedHosts.includes(host)) return null;
+    if (parsed.pathname !== '/watch') return null;
+
+    const videoId = parsed.searchParams.get('v');
+    if (!videoId || !downloader.VIDEO_ID_PATTERN.test(videoId)) return null;
+
+    return `https://www.youtube.com/watch?v=${videoId}`;
+}
+
 // API endpoint: Download a video
 router.post('/download', (req, res) => {
-    const videoUrl = req.body?.url;
+    const videoUrl = normaliseWatchUrl(req.body?.url);
 
     if (!videoUrl) {
-        return res.status(400).json({ error: 'No video URL provided' });
+        logger.error(`Rejected download request with invalid URL: ${String(req.body?.url).slice(0, 120)}`);
+        return res.status(400).json({ error: 'Not a valid YouTube watch URL' });
     }
 
     if (downloadedVideos.includes(videoUrl) || downloader.isDownloading(videoUrl)) {

@@ -64,6 +64,15 @@ jobs:
           mv "dist/YouTube-Checker.exe" "dist/YouTube-Checker-${VERSION}.exe"
           ls -la dist/
 
+      # action-gh-release only overwrites an asset whose name matches exactly,
+      # so renaming the artifact between runs leaves the old file behind and a
+      # release accumulates one exe per naming scheme it has ever used. Clear
+      # them first so a tag always ends up with exactly one.
+      - name: Remove stale release assets
+        run: node scripts/clean-release-assets.js "${{ github.ref_name }}" --yes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # Upload the versioned .exe to the GitHub Release created by the tag push
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

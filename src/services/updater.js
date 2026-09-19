@@ -10,7 +10,7 @@ const https = require('https');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const CONFIG = require('../config');
 const logger = require('../utils/logger');
 
@@ -18,6 +18,7 @@ const YTDLP_API = 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest';
 const FFMPEG_API = 'https://api.github.com/repos/yt-dlp/FFmpeg-Builds/releases/latest';
 const FFMPEG_ASSET = 'ffmpeg-master-latest-win64-gpl.zip';
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_REDIRECTS = 5;
 
 // Directory where binaries live (derived from the configured yt-dlp path)
 const BIN_DIR = path.dirname(CONFIG.YTDLP_PATH);
@@ -46,10 +47,15 @@ function fetchJson(url) {
  */
 function downloadFile(url, destPath) {
     return new Promise((resolve, reject) => {
-        const tryDownload = (downloadUrl) => {
+        const tryDownload = (downloadUrl, redirectsLeft = MAX_REDIRECTS) => {
             https.get(downloadUrl, { headers: { 'User-Agent': 'youtube-checker-app' } }, (res) => {
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                    tryDownload(res.headers.location);
+                    res.resume();
+                    if (redirectsLeft <= 0) {
+                        reject(new Error(`Too many redirects downloading ${url}`));
+                        return;
+                    }
+                    tryDownload(res.headers.location, redirectsLeft - 1);
                     return;
                 }
 
@@ -85,6 +91,17 @@ function downloadFile(url, destPath) {
 }
 
 /**
+ * Make a path safe to drop inside a PowerShell single-quoted string.
+ * Backslashes become forward slashes, and an apostrophe is doubled — otherwise
+ * it would close the string early and the remainder would run as code.
+ * @param {string} value
+ * @returns {string}
+ */
+function psQuote(value) {
+    return value.replace(/\\/g, '/').replace(/'/g, "''");
+}
+
+/**
  * Extract all .exe entries from a ZIP to destDir using a PowerShell .ps1 file.
  * Writing to a temp .ps1 avoids command-line escaping issues with long paths.
  */
@@ -92,9 +109,9 @@ function extractExesFromZip(zipPath, destDir) {
     return new Promise((resolve, reject) => {
         const script = [
             `Add-Type -Assembly System.IO.Compression.FileSystem`,
-            `$zip = [IO.Compression.ZipFile]::OpenRead('${zipPath.replace(/\\/g, '/')}')`,
+            `$zip = [IO.Compression.ZipFile]::OpenRead('${psQuote(zipPath)}')`,
             `$zip.Entries | Where-Object { $_.Name -like '*.exe' } | ForEach-Object {`,
-            `  $dest = Join-Path '${destDir.replace(/\\/g, '/')}' $_.Name`,
+            `  $dest = Join-Path '${psQuote(destDir)}' $_.Name`,
             `  [IO.Compression.ZipFileExtensions]::ExtractToFile($_, $dest, $true)`,
             `}`,
             `$zip.Dispose()`
@@ -103,7 +120,7 @@ function extractExesFromZip(zipPath, destDir) {
         const ps1 = path.join(os.tmpdir(), 'yt-checker-extract.ps1');
         fs.writeFileSync(ps1, script, 'utf-8');
 
-        exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps1}"`, (err, _out, stderr) => {
+        execFile('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1], (err, _out, stderr) => {
             try { fs.unlinkSync(ps1); } catch {}
             if (err) reject(new Error(`ZIP extraction failed: ${stderr || err.message}`));
             else resolve();
@@ -115,7 +132,7 @@ function extractExesFromZip(zipPath, destDir) {
 
 function getCurrentVersion() {
     return new Promise((resolve) => {
-        exec(`"${CONFIG.YTDLP_PATH}" --version`, (error, stdout) => {
+        execFile(CONFIG.YTDLP_PATH, ['--version'], (error, stdout) => {
             resolve(error ? null : stdout.trim());
         });
     });

@@ -14,7 +14,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 
 const BIN_DIR = path.join(__dirname, '..', 'bin');
 
@@ -144,6 +144,17 @@ function downloadFile(url, destPath, onProgress) {
 }
 
 /**
+ * Make a path safe to drop inside a PowerShell single-quoted string.
+ * Backslashes become forward slashes, and an apostrophe is doubled — otherwise
+ * it would close the string early and the remainder would run as code.
+ * @param {string} value
+ * @returns {string}
+ */
+function psQuote(value) {
+    return value.replace(/\\/g, '/').replace(/'/g, "''");
+}
+
+/**
  * Extract all .exe entries from a ZIP archive to destDir using PowerShell.
  * Writes a temporary .ps1 file to avoid command-line escaping issues.
  */
@@ -151,9 +162,9 @@ function extractExesFromZip(zipPath, destDir) {
     return new Promise((resolve, reject) => {
         const script = [
             `Add-Type -Assembly System.IO.Compression.FileSystem`,
-            `$zip = [IO.Compression.ZipFile]::OpenRead('${zipPath.replace(/\\/g, '/')}')`,
+            `$zip = [IO.Compression.ZipFile]::OpenRead('${psQuote(zipPath)}')`,
             `$zip.Entries | Where-Object { $_.Name -like '*.exe' } | ForEach-Object {`,
-            `  $dest = Join-Path '${destDir.replace(/\\/g, '/')}' $_.Name`,
+            `  $dest = Join-Path '${psQuote(destDir)}' $_.Name`,
             `  [IO.Compression.ZipFileExtensions]::ExtractToFile($_, $dest, $true)`,
             `}`,
             `$zip.Dispose()`
@@ -162,7 +173,7 @@ function extractExesFromZip(zipPath, destDir) {
         const ps1 = path.join(os.tmpdir(), 'yt-checker-extract.ps1');
         fs.writeFileSync(ps1, script, 'utf-8');
 
-        exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps1}"`, (err, _out, stderr) => {
+        execFile('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1], (err, _out, stderr) => {
             try { fs.unlinkSync(ps1); } catch {}
             if (err) reject(new Error(`ZIP extraction failed: ${stderr || err.message}`));
             else resolve();
